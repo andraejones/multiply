@@ -513,6 +513,118 @@
     session.paused = document.hidden;
   });
 
+  // --- Transfer: Export / Import ---
+  // Canonical fact order (deterministic)
+  var FACT_KEYS = [];
+  for (var a = 1; a <= 12; a++) {
+    for (var b = a; b <= 12; b++) {
+      FACT_KEYS.push(a + 'x' + b);
+    }
+  }
+
+  function crc8(bytes) {
+    var crc = 0;
+    for (var i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i];
+      for (var j = 0; j < 8; j++) {
+        crc = (crc & 0x80) ? ((crc << 1) ^ 0x07) & 0xFF : (crc << 1) & 0xFF;
+      }
+    }
+    return crc;
+  }
+
+  function exportCode() {
+    // Pack: [version 1B][dailyStreak 1B][personalBest×10 2B][78 facts × (weight 5b + bestStreak 4b)]
+    var bytes = [];
+    bytes.push(1); // version
+    bytes.push(Math.min(data.dailyStreak, 255));
+    var pb = Math.min(Math.round(data.personalBest * 10), 65535);
+    bytes.push((pb >> 8) & 0xFF);
+    bytes.push(pb & 0xFF);
+
+    // Pack 78 facts: 9 bits each → bit stream
+    var bits = [];
+    for (var i = 0; i < FACT_KEYS.length; i++) {
+      var fact = data.facts[FACT_KEYS[i]];
+      var w = fact ? Math.min(fact.weight, 31) : 5;
+      var bs = fact ? Math.min(fact.bestStreak, 15) : 0;
+      // 5 bits weight
+      for (var b = 4; b >= 0; b--) bits.push((w >> b) & 1);
+      // 4 bits bestStreak
+      for (var b = 3; b >= 0; b--) bits.push((bs >> b) & 1);
+    }
+
+    // Pack bits into bytes
+    while (bits.length % 8 !== 0) bits.push(0);
+    for (var i = 0; i < bits.length; i += 8) {
+      var byte = 0;
+      for (var b = 0; b < 8; b++) byte = (byte << 1) | bits[i + b];
+      bytes.push(byte);
+    }
+
+    // Append CRC
+    bytes.push(crc8(bytes));
+
+    // Convert to hex string
+    var hex = '';
+    for (var i = 0; i < bytes.length; i++) {
+      hex += ('0' + bytes[i].toString(16)).slice(-2);
+    }
+    return hex.toUpperCase();
+  }
+
+  function importCode(hex) {
+    hex = hex.replace(/\s/g, '').toUpperCase();
+    if (!/^[0-9A-F]+$/.test(hex)) return 'Invalid code: not a hex string';
+    if (hex.length % 2 !== 0) return 'Invalid code: odd length';
+
+    var bytes = [];
+    for (var i = 0; i < hex.length; i += 2) {
+      bytes.push(parseInt(hex.substr(i, 2), 16));
+    }
+
+    // Verify CRC
+    var storedCrc = bytes.pop();
+    if (crc8(bytes) !== storedCrc) return 'Invalid code: checksum mismatch';
+
+    // Parse header
+    var version = bytes[0];
+    if (version !== 1) return 'Unsupported code version';
+    var dailyStreak = bytes[1];
+    var personalBest = ((bytes[2] << 8) | bytes[3]) / 10;
+
+    // Unpack bits
+    var bits = [];
+    for (var i = 4; i < bytes.length; i++) {
+      for (var b = 7; b >= 0; b--) bits.push((bytes[i] >> b) & 1);
+    }
+
+    // Decode 78 facts
+    var idx = 0;
+    for (var i = 0; i < FACT_KEYS.length; i++) {
+      var w = 0;
+      for (var b = 0; b < 5; b++) w = (w << 1) | (bits[idx++] || 0);
+      var bs = 0;
+      for (var b = 0; b < 4; b++) bs = (bs << 1) | (bits[idx++] || 0);
+
+      var key = FACT_KEYS[i];
+      if (!data.facts[key]) {
+        data.facts[key] = { weight: w, correct: 0, attempts: 0, streak: 0, bestStreak: bs };
+      } else {
+        data.facts[key].weight = w;
+        data.facts[key].bestStreak = bs;
+        // Reset streak since it's a fresh device
+        data.facts[key].streak = 0;
+      }
+    }
+
+    data.dailyStreak = dailyStreak;
+    data.personalBest = personalBest;
+    saveData();
+    renderHome();
+    return null; // success
+  }
+
   // --- Event Listeners ---
   document.getElementById('start-btn').addEventListener('click', startSession);
 
@@ -521,6 +633,45 @@
     var showing = panel.style.display !== 'none';
     panel.style.display = showing ? 'none' : '';
     this.textContent = showing ? 'Last Round Stats' : 'Hide Stats';
+  });
+
+  document.getElementById('export-btn').addEventListener('click', function () {
+    var area = document.getElementById('export-area');
+    var code = exportCode();
+    document.getElementById('export-code').value = code;
+    area.style.display = '';
+    document.getElementById('copy-msg').textContent = '';
+  });
+
+  document.getElementById('copy-btn').addEventListener('click', function () {
+    var code = document.getElementById('export-code').value;
+    navigator.clipboard.writeText(code).then(function () {
+      document.getElementById('copy-msg').textContent = 'Copied!';
+      document.getElementById('copy-msg').style.color = 'var(--correct)';
+    }).catch(function () {
+      document.getElementById('export-code').select();
+      document.getElementById('copy-msg').textContent = 'Select all & copy manually';
+      document.getElementById('copy-msg').style.color = 'var(--primary)';
+    });
+  });
+
+  document.getElementById('import-btn').addEventListener('click', function () {
+    var code = document.getElementById('import-code').value.trim();
+    var msg = document.getElementById('import-msg');
+    if (!code) {
+      msg.textContent = 'Paste a transfer code first';
+      msg.style.color = 'var(--wrong)';
+      return;
+    }
+    var err = importCode(code);
+    if (err) {
+      msg.textContent = err;
+      msg.style.color = 'var(--wrong)';
+    } else {
+      msg.textContent = 'Progress imported!';
+      msg.style.color = 'var(--correct)';
+      document.getElementById('import-code').value = '';
+    }
   });
 
   document.getElementById('submit-btn').addEventListener('click', submitAnswer);

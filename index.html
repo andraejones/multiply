@@ -79,6 +79,21 @@
       <h2>Progress</h2>
       <table id="progress-grid"></table>
     </div>
+
+    <div class="transfer-section">
+      <h2>Transfer Progress</h2>
+      <button id="export-btn" class="secondary-btn">Export Code</button>
+      <div id="export-area" style="display:none;">
+        <textarea id="export-code" readonly rows="3"></textarea>
+        <button id="copy-btn" class="secondary-btn">Copy Code</button>
+        <p id="copy-msg" class="transfer-msg"></p>
+      </div>
+      <div class="transfer-import">
+        <textarea id="import-code" rows="3" placeholder="Paste transfer code here"></textarea>
+        <button id="import-btn" class="secondary-btn">Import Code</button>
+        <p id="import-msg" class="transfer-msg"></p>
+      </div>
+    </div>
   </section>
 
   <!-- PRACTICE SCREEN -->
