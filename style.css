@@ -228,6 +228,11 @@ h2 {
   align-items: center;
 }
 
+.next-btn {
+  font-size: 1.5rem;
+  padding: 14px 60px;
+}
+
 #answer-input {
   font-family: 'Nunito', sans-serif;
   font-size: 2.5rem;

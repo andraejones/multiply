@@ -124,6 +124,8 @@
     }
 
     document.getElementById('problem-display').textContent = a + ' × ' + b;
+    document.querySelector('.answer-area').style.display = '';
+    document.getElementById('next-btn').style.display = 'none';
     const input = document.getElementById('answer-input');
     input.value = '';
     input.focus();
@@ -138,6 +140,9 @@
   // --- Submit ---
   function submitAnswer() {
     const input = document.getElementById('answer-input');
+
+    if (session.waitingForConfirm) return;
+
     const value = parseInt(input.value, 10);
     if (isNaN(value)) return;
 
@@ -145,6 +150,7 @@
     const parts = key.split('x').map(Number);
     const correctAnswer = parts[0] * parts[1];
     const elapsed = Date.now() - session.problemStartTime;
+    session.totalTime += elapsed;
     const fact = data.facts[key];
     const fb = document.getElementById('feedback');
 
@@ -184,11 +190,18 @@
 
     saveData();
 
-    setTimeout(function () {
-      if (session.timerSeconds > 0 || session.paused) {
-        nextProblem();
-      }
-    }, value === correctAnswer ? 400 : 1200);
+    if (value === correctAnswer) {
+      setTimeout(function () {
+        if (session.timerSeconds > 0 || session.paused) {
+          nextProblem();
+        }
+      }, 400);
+    } else {
+      // Wait for user to click Next
+      session.waitingForConfirm = true;
+      document.querySelector('.answer-area').style.display = 'none';
+      document.getElementById('next-btn').style.display = '';
+    }
   }
 
   function getCorrectMessage() {
@@ -229,6 +242,8 @@
     session.currentFact = null;
     session.paused = false;
     session.wrongFacts = [];
+    session.waitingForConfirm = false;
+    session.totalTime = 0;
     session.timerSeconds = data.settings.timerMinutes * 60;
 
     document.getElementById('streak-display').textContent = '0 🔥';
@@ -267,9 +282,12 @@
     }
     data.lastPracticeDate = today;
 
-    // Personal best
-    if (session.correct > data.personalBest) {
-      data.personalBest = session.correct;
+    // Personal best (correct per minute)
+    const elapsedMinutes = data.settings.timerMinutes - (session.timerSeconds / 60);
+    const rate = elapsedMinutes > 0 ? Math.round((session.correct / elapsedMinutes) * 10) / 10 : 0;
+    session.rate = rate;
+    if (rate > data.personalBest) {
+      data.personalBest = rate;
     }
 
     saveData();
@@ -283,6 +301,8 @@
     document.getElementById('summary-total').textContent = session.total;
     const accuracy = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
     document.getElementById('summary-accuracy').textContent = accuracy + '%';
+    const avgSpeed = session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
+    document.getElementById('summary-speed').textContent = avgSpeed + 's';
 
     // Encouragement
     let msg;
@@ -291,7 +311,7 @@
     else if (accuracy >= 60) msg = 'Good effort! Practice makes perfect!';
     else msg = 'Keep going! Every practice makes you stronger!';
 
-    if (session.correct >= data.personalBest && session.correct > 0) {
+    if (session.rate >= data.personalBest && session.rate > 0) {
       msg = 'NEW PERSONAL BEST! ' + msg;
     }
     document.getElementById('summary-message').textContent = msg;
@@ -310,8 +330,7 @@
         if (entry[1].weight <= 1) return;
         const parts = entry[0].split('x');
         const li = document.createElement('li');
-        li.textContent = parts[0] + ' × ' + parts[1] + ' = ' + (parts[0] * parts[1]) +
-          '  (weight: ' + entry[1].weight + ')';
+        li.textContent = parts[0] + ' × ' + parts[1] + ' = ' + (parts[0] * parts[1]);
         list.appendChild(li);
       });
     } else {
@@ -366,7 +385,7 @@
   // --- Home ---
   function renderHome() {
     document.getElementById('daily-streak').textContent = data.dailyStreak + ' 🔥';
-    document.getElementById('personal-best').textContent = data.personalBest + ' ⭐';
+    document.getElementById('personal-best').textContent = data.personalBest + '/min ⭐';
     renderProgressGrid();
 
     // Highlight selected timer
@@ -385,6 +404,13 @@
   document.getElementById('start-btn').addEventListener('click', startSession);
 
   document.getElementById('submit-btn').addEventListener('click', submitAnswer);
+
+  document.getElementById('next-btn').addEventListener('click', function () {
+    session.waitingForConfirm = false;
+    if (session.timerSeconds > 0 || session.paused) {
+      nextProblem();
+    }
+  });
 
   document.getElementById('answer-input').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') submitAnswer();
