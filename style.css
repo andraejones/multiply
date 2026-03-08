@@ -1,15 +1,15 @@
 :root {
-  --primary: #6C63FF;
-  --primary-dark: #5A52D5;
-  --correct: #4CAF50;
-  --wrong: #F44336;
-  --mastery-none: #E0E0E0;
-  --mastery-bronze: #FFB74D;
-  --mastery-silver: #90CAF9;
-  --mastery-gold: #66BB6A;
-  --bg: #F5F3FF;
-  --text: #2D2B55;
-  --card-bg: #FFFFFF;
+  --primary: #A78BFA;
+  --primary-dark: #7C3AED;
+  --correct: #34D399;
+  --wrong: #F87171;
+  --mastery-none: rgba(255,255,255,0.1);
+  --mastery-bronze: #F59E0B;
+  --mastery-silver: #60A5FA;
+  --mastery-gold: #34D399;
+  --bg: #0B0D1A;
+  --text: #E8E6F0;
+  --card-bg: rgba(255,255,255,0.07);
 }
 
 * {
@@ -26,6 +26,62 @@ body {
   display: flex;
   justify-content: center;
   padding: 16px;
+  overflow-x: hidden;
+}
+
+/* Starfield background */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+body::before {
+  background:
+    radial-gradient(1px 1px at 10% 15%, #fff 50%, transparent 100%),
+    radial-gradient(1px 1px at 25% 35%, rgba(255,255,255,0.8) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 40% 70%, #fff 50%, transparent 100%),
+    radial-gradient(1px 1px at 55% 20%, rgba(255,255,255,0.6) 50%, transparent 100%),
+    radial-gradient(1px 1px at 70% 55%, #fff 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 85% 80%, rgba(255,255,255,0.9) 50%, transparent 100%),
+    radial-gradient(1px 1px at 15% 85%, rgba(255,255,255,0.7) 50%, transparent 100%),
+    radial-gradient(1px 1px at 90% 10%, #fff 50%, transparent 100%),
+    radial-gradient(1px 1px at 50% 50%, rgba(255,255,255,0.5) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 65% 40%, #fff 50%, transparent 100%),
+    radial-gradient(1px 1px at 30% 90%, rgba(255,255,255,0.8) 50%, transparent 100%),
+    radial-gradient(1px 1px at 80% 30%, rgba(255,255,255,0.6) 50%, transparent 100%),
+    radial-gradient(1px 1px at 5% 55%, #fff 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 95% 65%, rgba(255,255,255,0.7) 50%, transparent 100%),
+    radial-gradient(1px 1px at 45% 5%, rgba(255,255,255,0.9) 50%, transparent 100%),
+    radial-gradient(1px 1px at 60% 95%, #fff 50%, transparent 100%),
+    radial-gradient(1px 1px at 20% 60%, rgba(255,255,255,0.5) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 75% 15%, #fff 50%, transparent 100%);
+  animation: twinkle 4s ease-in-out infinite alternate;
+}
+
+body::after {
+  background:
+    radial-gradient(1px 1px at 8% 42%, rgba(255,255,255,0.6) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 22% 78%, #fff 50%, transparent 100%),
+    radial-gradient(1px 1px at 38% 12%, rgba(255,255,255,0.7) 50%, transparent 100%),
+    radial-gradient(1px 1px at 52% 88%, rgba(255,255,255,0.5) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 68% 28%, #fff 50%, transparent 100%),
+    radial-gradient(1px 1px at 82% 62%, rgba(255,255,255,0.8) 50%, transparent 100%),
+    radial-gradient(1px 1px at 92% 48%, rgba(255,255,255,0.6) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 12% 32%, #fff 50%, transparent 100%),
+    radial-gradient(1px 1px at 48% 72%, rgba(255,255,255,0.7) 50%, transparent 100%),
+    radial-gradient(1px 1px at 78% 8%, rgba(255,255,255,0.9) 50%, transparent 100%),
+    radial-gradient(1px 1px at 35% 55%, #fff 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 58% 38%, rgba(255,255,255,0.6) 50%, transparent 100%);
+  animation: twinkle 5s ease-in-out 1s infinite alternate-reverse;
+}
+
+@keyframes twinkle {
+  0% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 
 section {
@@ -55,7 +111,7 @@ h2 {
 
 .subtitle {
   font-size: 1.1rem;
-  color: #888;
+  color: rgba(255,255,255,0.5);
   margin-top: -12px;
 }
 
@@ -72,7 +128,8 @@ h2 {
   border-radius: 16px;
   padding: 16px;
   text-align: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.08);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -84,7 +141,7 @@ h2 {
 
 .stat-label {
   font-size: 0.85rem;
-  color: #888;
+  color: rgba(255,255,255,0.5);
   font-weight: 700;
 }
 
@@ -122,7 +179,7 @@ h2 {
   font-size: 1rem;
   font-weight: 700;
   padding: 8px 16px;
-  border: 2px solid var(--primary);
+  border: 2px solid rgba(167,139,250,0.5);
   border-radius: 12px;
   background: transparent;
   color: var(--primary);
@@ -161,7 +218,7 @@ h2 {
   padding: 12px 32px;
   background: transparent;
   color: var(--primary);
-  border: 2px solid var(--primary);
+  border: 2px solid rgba(167,139,250,0.5);
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.15s;
@@ -190,17 +247,17 @@ h2 {
 }
 
 #progress-grid th {
-  color: #888;
+  color: rgba(255,255,255,0.5);
 }
 
 #progress-grid td {
   cursor: default;
 }
 
-.mastery-none { background: var(--mastery-none); }
-.mastery-bronze { background: var(--mastery-bronze); }
-.mastery-silver { background: var(--mastery-silver); }
-.mastery-gold { background: var(--mastery-gold); color: #fff; }
+.mastery-none { background: var(--mastery-none); color: rgba(255,255,255,0.3); }
+.mastery-bronze { background: var(--mastery-bronze); color: #0B0D1A; }
+.mastery-silver { background: var(--mastery-silver); color: #0B0D1A; }
+.mastery-gold { background: var(--mastery-gold); color: #0B0D1A; }
 
 /* Practice screen */
 .practice-header {
@@ -240,10 +297,10 @@ h2 {
   width: 140px;
   text-align: center;
   padding: 10px;
-  border: 3px solid var(--primary);
+  border: 3px solid rgba(167,139,250,0.5);
   border-radius: 16px;
   outline: none;
-  background: var(--card-bg);
+  background: rgba(255,255,255,0.08);
   color: var(--text);
   -moz-appearance: textfield;
 }
@@ -275,7 +332,7 @@ h2 {
 
 .session-score {
   font-size: 1rem;
-  color: #888;
+  color: rgba(255,255,255,0.5);
   font-weight: 700;
 }
 
@@ -298,7 +355,8 @@ h2 {
   background: var(--card-bg);
   border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.08);
 }
 
 .weak-spots ul {
@@ -309,7 +367,7 @@ h2 {
 .weak-spots li {
   font-size: 1rem;
   padding: 6px 0;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
   font-weight: 700;
 }
 
