@@ -173,6 +173,7 @@
       fb.textContent = getCorrectMessage();
       fb.className = 'feedback correct';
     } else {
+      var lostStreak = session.streak;
       fact.weight += 3;
       fact.streak = 0;
       session.streak = 0;
@@ -196,8 +197,15 @@
           nextProblem();
         }
       }, 400);
+    } else if (lostStreak >= 3) {
+      // Show streak-broken interstitial, then show the wrong-answer review
+      showStreakBroken(lostStreak, function () {
+        session.waitingForConfirm = true;
+        document.querySelector('.answer-area').style.display = 'none';
+        document.getElementById('next-btn').style.display = '';
+      });
     } else {
-      // Wait for user to click Next
+      // No streak to break — just show wrong-answer review
       session.waitingForConfirm = true;
       document.querySelector('.answer-area').style.display = 'none';
       document.getElementById('next-btn').style.display = '';
@@ -212,6 +220,69 @@
     if (s === 5) return 'GREAT! 5 in a row!';
     const msgs = ['Correct!', 'Nice!', 'Yes!', 'Got it!', 'Right!'];
     return msgs[Math.floor(Math.random() * msgs.length)];
+  }
+
+  // --- Streak Broken Interstitial ---
+  var streakMessages = [
+    { emoji: '💪', msg: 'Shake it off!' },
+    { emoji: '🌟', msg: 'You\'ve got this!' },
+    { emoji: '🚀', msg: 'Keep going!' },
+    { emoji: '🔥', msg: 'Light it up again!' },
+    { emoji: '⚡', msg: 'Power through!' },
+    { emoji: '🎯', msg: 'Stay focused!' },
+  ];
+
+  var streakParticleEmoji = ['⭐', '✨', '💫', '🌟', '🔥', '💥'];
+
+  function showStreakBroken(lostStreak, callback) {
+    session.paused = true;
+    var overlay = document.getElementById('streak-overlay');
+    var pick = streakMessages[Math.floor(Math.random() * streakMessages.length)];
+
+    var emojiEl = document.getElementById('streak-lost-emoji');
+    emojiEl.textContent = pick.emoji;
+    emojiEl.className = 'animate__animated animate__bounceIn';
+
+    var msgEl = document.getElementById('streak-lost-msg');
+    msgEl.textContent = lostStreak >= 5
+      ? pick.msg + ' (' + lostStreak + ' streak!)'
+      : pick.msg;
+    msgEl.className = 'animate__animated animate__fadeInUp';
+
+    // Spawn falling particles
+    var container = document.getElementById('streak-particles');
+    container.innerHTML = '';
+    for (var i = 0; i < 15; i++) {
+      var p = document.createElement('span');
+      p.className = 'streak-particle';
+      p.textContent = streakParticleEmoji[Math.floor(Math.random() * streakParticleEmoji.length)];
+      p.style.left = Math.random() * 100 + '%';
+      p.style.animationDuration = (2 + Math.random() * 2) + 's';
+      p.style.animationDelay = (Math.random() * 1) + 's';
+      container.appendChild(p);
+    }
+
+    overlay.style.display = '';
+
+    function dismiss() {
+      overlay.style.display = 'none';
+      container.innerHTML = '';
+      overlay.removeEventListener('click', dismiss);
+      document.removeEventListener('keydown', dismissKey);
+      session.paused = false;
+      if (callback) callback();
+    }
+
+    function dismissKey(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        dismiss();
+      }
+    }
+
+    // Auto-dismiss after 2.5s, or tap/key to dismiss early
+    overlay.addEventListener('click', dismiss);
+    document.addEventListener('keydown', dismissKey);
+    setTimeout(dismiss, 2500);
   }
 
   // --- Timer ---
@@ -405,15 +476,23 @@
 
   document.getElementById('submit-btn').addEventListener('click', submitAnswer);
 
-  document.getElementById('next-btn').addEventListener('click', function () {
+  function advanceAfterWrong() {
     session.waitingForConfirm = false;
     if (session.timerSeconds > 0 || session.paused) {
       nextProblem();
     }
-  });
+  }
+
+  document.getElementById('next-btn').addEventListener('click', advanceAfterWrong);
 
   document.getElementById('answer-input').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') submitAnswer();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && session.waitingForConfirm) {
+      advanceAfterWrong();
+    }
   });
 
   document.getElementById('restart-btn').addEventListener('click', function () {

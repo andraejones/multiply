@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -100,6 +101,16 @@
       <button id="home-btn" class="secondary-btn">Back Home</button>
     </div>
   </section>
+
+  <!-- STREAK BROKEN INTERSTITIAL -->
+  <div id="streak-overlay" class="streak-overlay" style="display:none;">
+    <div class="streak-particles" id="streak-particles"></div>
+    <div class="streak-overlay-content">
+      <div id="streak-lost-emoji" class="animate__animated">💪</div>
+      <div id="streak-lost-msg" class="animate__animated animate__fadeInUp">Keep going!</div>
+      <div class="streak-lost-sub animate__animated animate__fadeInUp animate__delay-1s">Tap to continue</div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

@@ -324,6 +324,67 @@ h2 {
   justify-content: center;
 }
 
+/* Streak broken overlay */
+.streak-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(45, 43, 85, 0.85);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.streak-overlay-content {
+  text-align: center;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  z-index: 2;
+}
+
+#streak-lost-emoji {
+  font-size: 5rem;
+}
+
+#streak-lost-msg {
+  font-size: 2rem;
+  font-weight: 900;
+}
+
+.streak-lost-sub {
+  font-size: 1rem;
+  opacity: 0.7;
+}
+
+.streak-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.streak-particle {
+  position: absolute;
+  font-size: 1.8rem;
+  animation: particleFall linear forwards;
+  opacity: 0.8;
+}
+
+@keyframes particleFall {
+  0% {
+    transform: translateY(-40px) rotate(0deg);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(110vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
 /* Animations */
 @keyframes pop {
   0% { transform: scale(1); }
