@@ -157,8 +157,6 @@
     fact.attempts++;
     session.total++;
 
-    var lostStreak = session.streak;
-
     if (value === correctAnswer) {
       fact.correct++;
       fact.streak++;
@@ -171,6 +169,8 @@
 
       session.correct++;
       session.streak++;
+      var isNewBestStreak = session.streak > session.bestStreak && session.bestStreak >= 3;
+      if (session.streak > session.bestStreak) session.bestStreak = session.streak;
 
       fb.textContent = getCorrectMessage();
       fb.className = 'feedback correct';
@@ -188,25 +188,27 @@
     }
 
     document.getElementById('streak-display').textContent = session.streak + ' 🔥';
+    document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
     document.getElementById('session-score').textContent = session.correct + ' correct';
 
     saveData();
 
     if (value === correctAnswer) {
-      setTimeout(function () {
-        if (session.timerSeconds > 0 || session.paused) {
-          nextProblem();
-        }
-      }, 400);
-    } else if (lostStreak >= 3) {
-      // Show streak-broken interstitial, then show the wrong-answer review
-      showStreakBroken(lostStreak, function () {
-        session.waitingForConfirm = true;
-        document.querySelector('.answer-area').style.display = 'none';
-        document.getElementById('next-btn').style.display = '';
-      });
+      if (isNewBestStreak) {
+        // Celebrate new best streak, then advance
+        showStreakCelebration(session.bestStreak, function () {
+          if (session.timerSeconds > 0 || session.paused) {
+            nextProblem();
+          }
+        });
+      } else {
+        setTimeout(function () {
+          if (session.timerSeconds > 0 || session.paused) {
+            nextProblem();
+          }
+        }, 400);
+      }
     } else {
-      // No streak to break — just show wrong-answer review
       session.waitingForConfirm = true;
       document.querySelector('.answer-area').style.display = 'none';
       document.getElementById('next-btn').style.display = '';
@@ -223,19 +225,19 @@
     return msgs[Math.floor(Math.random() * msgs.length)];
   }
 
-  // --- Streak Broken Interstitial ---
+  // --- New Best Streak Celebration ---
   var streakMessages = [
-    { emoji: '💪', msg: 'Shake it off!' },
-    { emoji: '🌟', msg: 'You\'ve got this!' },
-    { emoji: '🚀', msg: 'Keep going!' },
-    { emoji: '🔥', msg: 'Light it up again!' },
-    { emoji: '⚡', msg: 'Power through!' },
-    { emoji: '🎯', msg: 'Stay focused!' },
+    { emoji: '🎉', msg: 'New record!' },
+    { emoji: '🏆', msg: 'New best streak!' },
+    { emoji: '🚀', msg: 'You\'re on fire!' },
+    { emoji: '⭐', msg: 'Superstar!' },
+    { emoji: '🌟', msg: 'Incredible!' },
+    { emoji: '💫', msg: 'Unstoppable!' },
   ];
 
-  var streakParticleEmoji = ['⭐', '✨', '💫', '🌟', '🔥', '💥'];
+  var streakParticleEmoji = ['⭐', '✨', '💫', '🌟', '🎉', '🏆'];
 
-  function showStreakBroken(lostStreak, callback) {
+  function showStreakCelebration(newBest, callback) {
     session.paused = true;
     var overlay = document.getElementById('streak-overlay');
     var pick = streakMessages[Math.floor(Math.random() * streakMessages.length)];
@@ -243,13 +245,11 @@
     var emojiEl = document.getElementById('streak-lost-emoji');
     emojiEl.textContent = pick.emoji;
     emojiEl.className = '';
-    void emojiEl.offsetWidth; // force reflow to retrigger animation
+    void emojiEl.offsetWidth;
     emojiEl.className = 'animate__animated animate__bounceIn';
 
     var msgEl = document.getElementById('streak-lost-msg');
-    msgEl.textContent = lostStreak >= 5
-      ? pick.msg + ' (' + lostStreak + ' streak!)'
-      : pick.msg;
+    msgEl.textContent = newBest + ' in a row! ' + pick.msg;
     msgEl.className = '';
     void msgEl.offsetWidth;
     msgEl.className = 'animate__animated animate__fadeInUp';
@@ -317,6 +317,7 @@
     session.correct = 0;
     session.total = 0;
     session.streak = 0;
+    session.bestStreak = 0;
     session.previousFact = null;
     session.currentFact = null;
     session.paused = false;
@@ -326,6 +327,7 @@
     session.timerSeconds = data.settings.timerMinutes * 60;
 
     document.getElementById('streak-display').textContent = '0 🔥';
+    document.getElementById('best-streak-display').textContent = 'Best: 0';
     document.getElementById('session-score').textContent = '0 correct';
 
     showScreen('practice');
@@ -371,6 +373,17 @@
     if (session.isNewBest) {
       data.personalBest = rate;
     }
+
+    // Save last round stats
+    var avgSpeed = session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
+    data.lastRound = {
+      correct: session.correct,
+      total: session.total,
+      accuracy: session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0,
+      speed: avgSpeed,
+      rate: rate,
+      bestStreak: session.bestStreak,
+    };
 
     saveData();
     renderSummary();
@@ -474,6 +487,22 @@
     document.querySelectorAll('#timer-buttons button').forEach(function (btn) {
       btn.classList.toggle('selected', parseInt(btn.dataset.minutes, 10) === data.settings.timerMinutes);
     });
+
+    // Last round button
+    var btn = document.getElementById('last-round-btn');
+    var panel = document.getElementById('last-round-panel');
+    if (data.lastRound) {
+      btn.style.display = '';
+      document.getElementById('lr-correct').textContent = data.lastRound.correct;
+      document.getElementById('lr-total').textContent = data.lastRound.total;
+      document.getElementById('lr-accuracy').textContent = data.lastRound.accuracy + '%';
+      document.getElementById('lr-speed').textContent = data.lastRound.speed + 's';
+      document.getElementById('lr-rate').textContent = data.lastRound.rate + '/min';
+      document.getElementById('lr-best-streak').textContent = data.lastRound.bestStreak;
+    } else {
+      btn.style.display = 'none';
+      panel.style.display = 'none';
+    }
   }
 
   // --- Visibility API (pause when tab hidden) ---
@@ -486,6 +515,13 @@
 
   // --- Event Listeners ---
   document.getElementById('start-btn').addEventListener('click', startSession);
+
+  document.getElementById('last-round-btn').addEventListener('click', function () {
+    var panel = document.getElementById('last-round-panel');
+    var showing = panel.style.display !== 'none';
+    panel.style.display = showing ? 'none' : '';
+    this.textContent = showing ? 'Last Round Stats' : 'Hide Stats';
+  });
 
   document.getElementById('submit-btn').addEventListener('click', submitAnswer);
 

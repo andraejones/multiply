@@ -40,6 +40,40 @@
     </div>
 
     <button id="start-btn" class="primary-btn">Start Practice</button>
+    <button id="last-round-btn" class="secondary-btn" style="display:none;">Last Round Stats</button>
+
+    <!-- LAST ROUND PANEL -->
+    <div id="last-round-panel" class="last-round-panel" style="display:none;">
+      <h2>Last Round</h2>
+      <div class="stats-row">
+        <div class="stat-box">
+          <span class="stat-value" id="lr-correct">0</span>
+          <span class="stat-label">Correct</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="lr-total">0</span>
+          <span class="stat-label">Total</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="lr-accuracy">0%</span>
+          <span class="stat-label">Accuracy</span>
+        </div>
+      </div>
+      <div class="stats-row">
+        <div class="stat-box">
+          <span class="stat-value" id="lr-speed">0.0s</span>
+          <span class="stat-label">Avg Speed</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="lr-rate">0/min</span>
+          <span class="stat-label">Rate</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="lr-best-streak">0</span>
+          <span class="stat-label">Best Streak</span>
+        </div>
+      </div>
+    </div>
 
     <div class="progress-section">
       <h2>Progress</h2>
@@ -52,6 +86,7 @@
     <div class="practice-header">
       <span id="timer-display">5:00</span>
       <span id="streak-display">0 🔥</span>
+      <span id="best-streak-display">Best: 0</span>
     </div>
 
     <div id="problem-display" class="problem">7 × 8</div>
