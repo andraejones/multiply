@@ -157,6 +157,8 @@
     fact.attempts++;
     session.total++;
 
+    var lostStreak = session.streak;
+
     if (value === correctAnswer) {
       fact.correct++;
       fact.streak++;
@@ -173,7 +175,6 @@
       fb.textContent = getCorrectMessage();
       fb.className = 'feedback correct';
     } else {
-      var lostStreak = session.streak;
       fact.weight += 3;
       fact.streak = 0;
       session.streak = 0;
@@ -241,12 +242,16 @@
 
     var emojiEl = document.getElementById('streak-lost-emoji');
     emojiEl.textContent = pick.emoji;
+    emojiEl.className = '';
+    void emojiEl.offsetWidth; // force reflow to retrigger animation
     emojiEl.className = 'animate__animated animate__bounceIn';
 
     var msgEl = document.getElementById('streak-lost-msg');
     msgEl.textContent = lostStreak >= 5
       ? pick.msg + ' (' + lostStreak + ' streak!)'
       : pick.msg;
+    msgEl.className = '';
+    void msgEl.offsetWidth;
     msgEl.className = 'animate__animated animate__fadeInUp';
 
     // Spawn falling particles
@@ -264,7 +269,10 @@
 
     overlay.style.display = '';
 
+    var dismissed = false;
     function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
       overlay.style.display = 'none';
       container.innerHTML = '';
       overlay.removeEventListener('click', dismiss);
@@ -327,6 +335,9 @@
 
   function endSession() {
     clearInterval(session.timerInterval);
+
+    // Compute rate before zeroing timerSeconds
+    var elapsedMinutes = data.settings.timerMinutes - (session.timerSeconds / 60);
     session.timerSeconds = 0;
 
     // Update history
@@ -354,10 +365,10 @@
     data.lastPracticeDate = today;
 
     // Personal best (correct per minute)
-    const elapsedMinutes = data.settings.timerMinutes - (session.timerSeconds / 60);
-    const rate = elapsedMinutes > 0 ? Math.round((session.correct / elapsedMinutes) * 10) / 10 : 0;
+    var rate = elapsedMinutes > 0 ? Math.round((session.correct / elapsedMinutes) * 10) / 10 : 0;
     session.rate = rate;
-    if (rate > data.personalBest) {
+    session.isNewBest = rate > data.personalBest;
+    if (session.isNewBest) {
       data.personalBest = rate;
     }
 
@@ -382,7 +393,7 @@
     else if (accuracy >= 60) msg = 'Good effort! Practice makes perfect!';
     else msg = 'Keep going! Every practice makes you stronger!';
 
-    if (session.rate >= data.personalBest && session.rate > 0) {
+    if (session.isNewBest) {
       msg = 'NEW PERSONAL BEST! ' + msg;
     }
     document.getElementById('summary-message').textContent = msg;
@@ -468,6 +479,8 @@
   // --- Visibility API (pause when tab hidden) ---
   document.addEventListener('visibilitychange', function () {
     if (!session.timerInterval) return;
+    // Don't unpause if streak interstitial is showing
+    if (!document.hidden && document.getElementById('streak-overlay').style.display !== 'none') return;
     session.paused = document.hidden;
   });
 
@@ -486,7 +499,10 @@
   document.getElementById('next-btn').addEventListener('click', advanceAfterWrong);
 
   document.getElementById('answer-input').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') submitAnswer();
+    if (e.key === 'Enter') {
+      e.stopPropagation();
+      submitAnswer();
+    }
   });
 
   document.addEventListener('keydown', function (e) {
