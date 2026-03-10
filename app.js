@@ -1,15 +1,28 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'multiply-trainer';
-  const FAST_THRESHOLD = 5000; // ms
+  var STORAGE_KEY = 'multiply-trainer';
+  var FAST_THRESHOLD = 5000; // ms
+
+  // --- Player Levels (space-themed) ---
+  var LEVELS = [
+    { min: 0,   title: 'Space Cadet',       badge: '\uD83E\uDDD1\u200D\uD83D\uDE80' },
+    { min: 10,  title: 'Star Pilot',         badge: '\u2708\uFE0F' },
+    { min: 25,  title: 'Asteroid Miner',     badge: '\u26CF\uFE0F' },
+    { min: 50,  title: 'Nebula Navigator',   badge: '\uD83D\uDE80' },
+    { min: 75,  title: 'Galaxy Explorer',    badge: '\uD83C\uDF00' },
+    { min: 90,  title: 'Star Commander',     badge: '\uD83C\uDF96\uFE0F' },
+    { min: 100, title: 'Universe Master',    badge: '\uD83C\uDF0C' },
+  ];
 
   // --- State ---
-  let data;
-  let session = {
+  var data;
+  var session = {
     correct: 0,
     total: 0,
     streak: 0,
+    bestStreak: 0,
+    streakCelebrated: false,
     timerSeconds: 0,
     timerInterval: null,
     currentFact: null,
@@ -17,6 +30,9 @@
     problemStartTime: 0,
     paused: false,
     wrongFacts: [],
+    totalTime: 0,
+    waitingForRetype: false,
+    requiredRetype: null,
   };
 
   // --- Defaults ---
@@ -28,27 +44,32 @@
       dailyStreak: 0,
       lastPracticeDate: null,
       personalBest: 0,
+      lastTitle: null,
     };
   }
 
   // --- LocalStorage ---
   function loadData() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      var raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw);
-        const base = defaults();
+        var parsed = JSON.parse(raw);
+        var base = defaults();
         data = {
-          ...base,
-          ...parsed,
-          settings: { ...base.settings, ...(parsed.settings || {}) },
           facts: parsed.facts || {},
+          settings: { timerMinutes: (parsed.settings && parsed.settings.timerMinutes) || base.settings.timerMinutes },
           history: parsed.history || {},
+          dailyStreak: parsed.dailyStreak || 0,
+          lastPracticeDate: parsed.lastPracticeDate || null,
+          personalBest: parsed.personalBest || 0,
+          lastTitle: parsed.lastTitle || null,
         };
+        // Migrate from 78-fact (canonical) to 144-fact format
+        migrateToFullFacts();
       } else {
         data = defaults();
       }
-    } catch {
+    } catch (e) {
       data = defaults();
     }
   }
@@ -56,20 +77,41 @@
   function saveData() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch {
+    } catch (e) {
       // silently fail
     }
   }
 
-  // --- Facts ---
-  function canonicalKey(a, b) {
-    return a <= b ? a + 'x' + b : b + 'x' + a;
+  // --- Migration: 78 → 144 facts ---
+  function migrateToFullFacts() {
+    // Detect old format: if "2x1" doesn't exist but "1x2" does, we need to clone
+    if (data.facts['1x2'] && !data.facts['2x1']) {
+      for (var a = 1; a <= 12; a++) {
+        for (var b = 1; b <= 12; b++) {
+          if (a === b) continue;
+          var key = a + 'x' + b;
+          var canonical = (a < b) ? a + 'x' + b : b + 'x' + a;
+          if (!data.facts[key] && data.facts[canonical]) {
+            var src = data.facts[canonical];
+            data.facts[key] = {
+              weight: src.weight,
+              correct: src.correct || 0,
+              attempts: src.attempts || 0,
+              streak: 0,
+              bestStreak: src.bestStreak || 0,
+            };
+          }
+        }
+      }
+      saveData();
+    }
   }
 
+  // --- Facts ---
   function initFacts() {
-    for (let a = 1; a <= 12; a++) {
-      for (let b = a; b <= 12; b++) {
-        const key = a + 'x' + b;
+    for (var a = 1; a <= 12; a++) {
+      for (var b = 1; b <= 12; b++) {
+        var key = a + 'x' + b;
         if (!data.facts[key]) {
           data.facts[key] = { weight: 5, correct: 0, attempts: 0, streak: 0, bestStreak: 0 };
         }
@@ -80,23 +122,24 @@
 
   // --- Screens ---
   function showScreen(name) {
-    document.querySelectorAll('section').forEach(function (s) {
-      s.classList.remove('active');
-    });
+    var sections = document.querySelectorAll('section');
+    for (var i = 0; i < sections.length; i++) {
+      sections[i].classList.remove('active');
+    }
     document.getElementById(name).classList.add('active');
   }
 
   // --- Weighted Random Pick ---
   function pickNextFact() {
-    const keys = Object.keys(data.facts);
-    let totalWeight = 0;
-    for (let i = 0; i < keys.length; i++) {
+    var keys = Object.keys(data.facts);
+    var totalWeight = 0;
+    for (var i = 0; i < keys.length; i++) {
       totalWeight += data.facts[keys[i]].weight;
     }
 
-    for (let attempt = 0; attempt < 4; attempt++) {
-      let rand = Math.random() * totalWeight;
-      for (let i = 0; i < keys.length; i++) {
+    for (var attempt = 0; attempt < 4; attempt++) {
+      var rand = Math.random() * totalWeight;
+      for (var i = 0; i < keys.length; i++) {
         rand -= data.facts[keys[i]].weight;
         if (rand <= 0) {
           if (attempt < 3 && keys[i] === session.previousFact) {
@@ -112,52 +155,168 @@
 
   // --- Problem Display ---
   function nextProblem() {
-    const key = pickNextFact();
+    var key = pickNextFact();
     session.currentFact = key;
     session.previousFact = key;
 
-    const parts = key.split('x').map(Number);
-    let a = parts[0], b = parts[1];
-    // Randomly swap order
-    if (Math.random() < 0.5) {
-      const tmp = a; a = b; b = tmp;
-    }
+    var parts = key.split('x').map(Number);
+    var a = parts[0], b = parts[1];
+    // No random swap — the key IS the display order now (commutative reinforcement)
 
-    document.getElementById('problem-display').textContent = a + ' × ' + b;
+    document.getElementById('problem-display').textContent = a + ' \u00D7 ' + b;
     document.querySelector('.answer-area').style.display = '';
-    document.getElementById('next-btn').style.display = 'none';
-    const input = document.getElementById('answer-input');
+    var input = document.getElementById('answer-input');
     input.value = '';
+    input.placeholder = '?';
     input.focus();
     session.problemStartTime = Date.now();
+    session.waitingForRetype = false;
+    session.requiredRetype = null;
 
     // Clear feedback
-    const fb = document.getElementById('feedback');
+    var fb = document.getElementById('feedback');
     fb.textContent = '';
     fb.className = 'feedback';
   }
 
+  // --- Confetti Helper ---
+  function fireConfetti(options) {
+    if (typeof confetti === 'function') {
+      confetti(options);
+    }
+  }
+
+  // --- Player Level ---
+  function getGoldPercent() {
+    var keys = Object.keys(data.facts);
+    if (keys.length === 0) return 0;
+    var gold = 0;
+    for (var i = 0; i < keys.length; i++) {
+      if (data.facts[keys[i]].bestStreak >= 10) gold++;
+    }
+    return Math.round((gold / keys.length) * 100);
+  }
+
+  function getPlayerLevel() {
+    var pct = getGoldPercent();
+    var level = LEVELS[0];
+    for (var i = LEVELS.length - 1; i >= 0; i--) {
+      if (pct >= LEVELS[i].min) {
+        level = LEVELS[i];
+        break;
+      }
+    }
+    return level;
+  }
+
+  // --- Celebration Overlay (reusable for mastery + level-up) ---
+  var celebrationQueue = [];
+  var celebrationShowing = false;
+
+  function queueCelebration(emoji, msg, confettiOpts) {
+    celebrationQueue.push({ emoji: emoji, msg: msg, confettiOpts: confettiOpts });
+    if (!celebrationShowing) showNextCelebration();
+  }
+
+  function showNextCelebration() {
+    if (celebrationQueue.length === 0) {
+      celebrationShowing = false;
+      return;
+    }
+    celebrationShowing = true;
+    session.paused = true;
+    var item = celebrationQueue.shift();
+    var overlay = document.getElementById('celebration-overlay');
+
+    var emojiEl = document.getElementById('celebration-emoji');
+    emojiEl.textContent = item.emoji;
+    emojiEl.className = '';
+    void emojiEl.offsetWidth;
+    emojiEl.className = 'animate__animated animate__bounceIn';
+
+    var msgEl = document.getElementById('celebration-msg');
+    msgEl.textContent = item.msg;
+    msgEl.className = '';
+    void msgEl.offsetWidth;
+    msgEl.className = 'animate__animated animate__fadeInUp';
+
+    overlay.style.display = '';
+
+    if (item.confettiOpts) {
+      fireConfetti(item.confettiOpts);
+    }
+
+    var dismissed = false;
+    function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
+      overlay.style.display = 'none';
+      overlay.removeEventListener('click', dismiss);
+      document.removeEventListener('keydown', dismissKey);
+      session.paused = false;
+      // Show next in queue or resume
+      if (celebrationQueue.length > 0) {
+        showNextCelebration();
+      } else {
+        celebrationShowing = false;
+        // Resume play
+        if (session.timerSeconds > 0 || session.paused) {
+          nextProblem();
+        }
+      }
+    }
+    function dismissKey(e) {
+      if (e.key === 'Enter' || e.key === ' ') dismiss();
+    }
+    overlay.addEventListener('click', dismiss);
+    document.addEventListener('keydown', dismissKey);
+    setTimeout(dismiss, 2500);
+  }
+
   // --- Submit ---
   function submitAnswer() {
-    const input = document.getElementById('answer-input');
+    if (session.paused) return;
+    var input = document.getElementById('answer-input');
 
-    if (session.waitingForConfirm) return;
+    // Handle retype mode
+    if (session.waitingForRetype) {
+      var retypeVal = parseInt(input.value, 10);
+      if (isNaN(retypeVal)) return;
+      if (retypeVal === session.requiredRetype) {
+        // Correct retype — advance (no stats counted)
+        session.waitingForRetype = false;
+        session.requiredRetype = null;
+        if (session.timerSeconds > 0 || session.paused) {
+          nextProblem();
+        }
+      } else {
+        // Wrong retype — shake and clear
+        input.value = '';
+        var fb = document.getElementById('feedback');
+        fb.className = 'feedback';
+        void fb.offsetWidth;
+        fb.className = 'feedback wrong';
+      }
+      return;
+    }
 
-    const value = parseInt(input.value, 10);
+    var value = parseInt(input.value, 10);
     if (isNaN(value)) return;
 
-    const key = session.currentFact;
-    const parts = key.split('x').map(Number);
-    const correctAnswer = parts[0] * parts[1];
-    const elapsed = Date.now() - session.problemStartTime;
+    var key = session.currentFact;
+    var parts = key.split('x').map(Number);
+    var correctAnswer = parts[0] * parts[1];
+    var elapsed = Date.now() - session.problemStartTime;
     session.totalTime += elapsed;
-    const fact = data.facts[key];
-    const fb = document.getElementById('feedback');
+    var fact = data.facts[key];
+    var fb = document.getElementById('feedback');
 
     fact.attempts++;
     session.total++;
 
     if (value === correctAnswer) {
+      input.value = '';
+      var oldBestStreak = fact.bestStreak;
       fact.correct++;
       fact.streak++;
       if (fact.streak > fact.bestStreak) fact.bestStreak = fact.streak;
@@ -165,77 +324,114 @@
       if (elapsed <= FAST_THRESHOLD) {
         fact.weight = Math.max(1, fact.weight - 1);
       }
-      // slow correct: weight unchanged
 
       session.correct++;
       session.streak++;
-      var isNewBestStreak = session.streak > session.bestStreak && session.bestStreak >= 3;
+      var isNewBestStreak = session.streak > session.bestStreak && session.bestStreak >= 3 && !session.streakCelebrated;
       if (session.streak > session.bestStreak) session.bestStreak = session.streak;
+      if (isNewBestStreak) session.streakCelebrated = true;
 
       fb.textContent = getCorrectMessage();
       fb.className = 'feedback correct';
+
+      document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
+      document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
+      document.getElementById('session-score').textContent = session.correct + ' correct';
+
+      saveData();
+
+      // Check for gold mastery milestone
+      var justMastered = fact.bestStreak >= 10 && oldBestStreak < 10;
+
+      // Check for level-up
+      var currentLevel = getPlayerLevel();
+      var leveledUp = data.lastTitle && currentLevel.title !== data.lastTitle && LEVELS.indexOf(currentLevel) > LEVELS.indexOf(LEVELS.find(function (l) { return l.title === data.lastTitle; }) || LEVELS[0]);
+      if (currentLevel.title !== data.lastTitle) {
+        data.lastTitle = currentLevel.title;
+        saveData();
+      }
+
+      // Queue celebrations (mastery first, then level-up, then streak)
+      if (justMastered) {
+        queueCelebration(
+          '\uD83C\uDFC6',
+          parts[0] + ' \u00D7 ' + parts[1] + ' Mastered!',
+          { particleCount: 80, spread: 70, colors: ['#34D399', '#FFD700'] }
+        );
+      }
+
+      if (leveledUp) {
+        queueCelebration(
+          currentLevel.badge,
+          currentLevel.title + '!',
+          { particleCount: 120, spread: 100, startVelocity: 35 }
+        );
+      }
+
+      if (isNewBestStreak) {
+        var streakPick = streakMessages[Math.floor(Math.random() * streakMessages.length)];
+        queueCelebration(
+          streakPick.emoji,
+          session.bestStreak + ' in a row! ' + streakPick.msg,
+          session.bestStreak >= 10 ? { particleCount: 60, spread: 55 } : null
+        );
+      } else if (!justMastered && !leveledUp && !isNewBestStreak) {
+        setTimeout(function () {
+          if (!celebrationShowing && (session.timerSeconds > 0 || session.paused)) {
+            nextProblem();
+          }
+        }, 400);
+      }
+      // If mastery/level celebrations queued, showNextCelebration handles advancing
     } else {
       fact.weight += 3;
       fact.streak = 0;
       session.streak = 0;
+      session.streakCelebrated = false;
 
       if (!session.wrongFacts.includes(key)) {
         session.wrongFacts.push(key);
       }
 
-      fb.textContent = correctAnswer + '  — ' + parts[0] + ' × ' + parts[1] + ' = ' + correctAnswer;
+      fb.textContent = correctAnswer + '  \u2014 ' + parts[0] + ' \u00D7 ' + parts[1] + ' = ' + correctAnswer;
       fb.className = 'feedback wrong';
-    }
 
-    document.getElementById('streak-display').textContent = session.streak + ' 🔥';
-    document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
-    document.getElementById('session-score').textContent = session.correct + ' correct';
+      document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
+      document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
+      document.getElementById('session-score').textContent = session.correct + ' correct';
 
-    saveData();
+      saveData();
 
-    if (value === correctAnswer) {
-      if (isNewBestStreak) {
-        // Celebrate new best streak, then advance
-        showStreakCelebration(session.bestStreak, function () {
-          if (session.timerSeconds > 0 || session.paused) {
-            nextProblem();
-          }
-        });
-      } else {
-        setTimeout(function () {
-          if (session.timerSeconds > 0 || session.paused) {
-            nextProblem();
-          }
-        }, 400);
-      }
-    } else {
-      session.waitingForConfirm = true;
-      document.querySelector('.answer-area').style.display = 'none';
-      document.getElementById('next-btn').style.display = '';
+      // Retype mode: child must type the correct answer
+      session.waitingForRetype = true;
+      session.requiredRetype = correctAnswer;
+      input.value = '';
+      input.placeholder = String(correctAnswer);
+      input.focus();
     }
   }
 
   function getCorrectMessage() {
-    const s = session.streak;
+    var s = session.streak;
     if (s === 20) return 'UNSTOPPABLE! 20 in a row!';
     if (s === 15) return 'INCREDIBLE! 15 streak!';
     if (s === 10) return 'AMAZING! 10 in a row!';
     if (s === 5) return 'GREAT! 5 in a row!';
-    const msgs = ['Correct!', 'Nice!', 'Yes!', 'Got it!', 'Right!'];
+    var msgs = ['Correct!', 'Nice!', 'Yes!', 'Got it!', 'Right!'];
     return msgs[Math.floor(Math.random() * msgs.length)];
   }
 
   // --- New Best Streak Celebration ---
   var streakMessages = [
-    { emoji: '🎉', msg: 'New record!' },
-    { emoji: '🏆', msg: 'New best streak!' },
-    { emoji: '🚀', msg: 'You\'re on fire!' },
-    { emoji: '⭐', msg: 'Superstar!' },
-    { emoji: '🌟', msg: 'Incredible!' },
-    { emoji: '💫', msg: 'Unstoppable!' },
+    { emoji: '\uD83C\uDF89', msg: 'New record!' },
+    { emoji: '\uD83C\uDFC6', msg: 'New best streak!' },
+    { emoji: '\uD83D\uDE80', msg: 'You\'re on fire!' },
+    { emoji: '\u2B50', msg: 'Superstar!' },
+    { emoji: '\uD83C\uDF1F', msg: 'Incredible!' },
+    { emoji: '\uD83D\uDCAB', msg: 'Unstoppable!' },
   ];
 
-  var streakParticleEmoji = ['⭐', '✨', '💫', '🌟', '🎉', '🏆'];
+  var streakParticleEmoji = ['\u2B50', '\u2728', '\uD83D\uDCAB', '\uD83C\uDF1F', '\uD83C\uDF89', '\uD83C\uDFC6'];
 
   function showStreakCelebration(newBest, callback) {
     session.paused = true;
@@ -307,8 +503,8 @@
   }
 
   function updateTimerDisplay() {
-    const m = Math.floor(session.timerSeconds / 60);
-    const s = session.timerSeconds % 60;
+    var m = Math.floor(session.timerSeconds / 60);
+    var s = session.timerSeconds % 60;
     document.getElementById('timer-display').textContent = m + ':' + (s < 10 ? '0' : '') + s;
   }
 
@@ -322,11 +518,15 @@
     session.currentFact = null;
     session.paused = false;
     session.wrongFacts = [];
-    session.waitingForConfirm = false;
+    session.waitingForRetype = false;
+    session.requiredRetype = null;
+    session.streakCelebrated = false;
     session.totalTime = 0;
     session.timerSeconds = data.settings.timerMinutes * 60;
+    celebrationQueue = [];
+    celebrationShowing = false;
 
-    document.getElementById('streak-display').textContent = '0 🔥';
+    document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
     document.getElementById('best-streak-display').textContent = 'Best: 0';
     document.getElementById('session-score').textContent = '0 correct';
 
@@ -343,7 +543,7 @@
     session.timerSeconds = 0;
 
     // Update history
-    const today = new Date().toISOString().slice(0, 10);
+    var today = new Date().toISOString().slice(0, 10);
     if (!data.history[today]) {
       data.history[today] = { correct: 0, total: 0 };
     }
@@ -352,15 +552,14 @@
 
     // Daily streak
     if (data.lastPracticeDate) {
-      const last = new Date(data.lastPracticeDate + 'T00:00:00');
-      const now = new Date(today + 'T00:00:00');
-      const diffDays = Math.round((now - last) / 86400000);
+      var last = new Date(data.lastPracticeDate + 'T00:00:00');
+      var now = new Date(today + 'T00:00:00');
+      var diffDays = Math.round((now - last) / 86400000);
       if (diffDays === 1) {
         data.dailyStreak++;
       } else if (diffDays > 1) {
         data.dailyStreak = 1;
       }
-      // diffDays === 0: same day, don't change
     } else {
       data.dailyStreak = 1;
     }
@@ -394,13 +593,12 @@
   function renderSummary() {
     document.getElementById('summary-correct').textContent = session.correct;
     document.getElementById('summary-total').textContent = session.total;
-    const accuracy = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
+    var accuracy = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
     document.getElementById('summary-accuracy').textContent = accuracy + '%';
-    const avgSpeed = session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
+    var avgSpeed = session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
     document.getElementById('summary-speed').textContent = avgSpeed + 's';
 
-    // Encouragement
-    let msg;
+    var msg;
     if (accuracy >= 95) msg = 'Outstanding! You\'re a multiplication master!';
     else if (accuracy >= 80) msg = 'Great job! Keep it up!';
     else if (accuracy >= 60) msg = 'Good effort! Practice makes perfect!';
@@ -412,20 +610,20 @@
     document.getElementById('summary-message').textContent = msg;
 
     // Weak spots — top 5 by weight
-    const list = document.getElementById('weak-list');
+    var list = document.getElementById('weak-list');
     list.innerHTML = '';
-    const sorted = Object.entries(data.facts)
+    var sorted = Object.entries(data.facts)
       .sort(function (a, b) { return b[1].weight - a[1].weight; })
       .slice(0, 5);
 
-    const weakSection = document.getElementById('weak-spots');
+    var weakSection = document.getElementById('weak-spots');
     if (sorted.length > 0 && sorted[0][1].weight > 1) {
       weakSection.style.display = '';
       sorted.forEach(function (entry) {
         if (entry[1].weight <= 1) return;
-        const parts = entry[0].split('x');
-        const li = document.createElement('li');
-        li.textContent = parts[0] + ' × ' + parts[1] + ' = ' + (parts[0] * parts[1]);
+        var parts = entry[0].split('x');
+        var li = document.createElement('li');
+        li.textContent = parts[0] + ' \u00D7 ' + parts[1] + ' = ' + (parts[0] * parts[1]);
         list.appendChild(li);
       });
     } else {
@@ -443,31 +641,31 @@
   }
 
   function renderProgressGrid() {
-    const table = document.getElementById('progress-grid');
+    var table = document.getElementById('progress-grid');
     table.innerHTML = '';
 
     // Header row
-    const headerRow = document.createElement('tr');
-    const corner = document.createElement('th');
-    corner.textContent = '×';
+    var headerRow = document.createElement('tr');
+    var corner = document.createElement('th');
+    corner.textContent = '\u00D7';
     headerRow.appendChild(corner);
-    for (let c = 1; c <= 12; c++) {
-      const th = document.createElement('th');
+    for (var c = 1; c <= 12; c++) {
+      var th = document.createElement('th');
       th.textContent = c;
       headerRow.appendChild(th);
     }
     table.appendChild(headerRow);
 
     // Data rows
-    for (let r = 1; r <= 12; r++) {
-      const row = document.createElement('tr');
-      const th = document.createElement('th');
-      th.textContent = r;
-      row.appendChild(th);
-      for (let c = 1; c <= 12; c++) {
-        const td = document.createElement('td');
-        const key = canonicalKey(r, c);
-        const fact = data.facts[key];
+    for (var r = 1; r <= 12; r++) {
+      var row = document.createElement('tr');
+      var rth = document.createElement('th');
+      rth.textContent = r;
+      row.appendChild(rth);
+      for (var c = 1; c <= 12; c++) {
+        var td = document.createElement('td');
+        var key = r + 'x' + c;
+        var fact = data.facts[key];
         td.className = 'mastery-' + masteryLevel(fact);
         td.textContent = r * c;
         td.title = key + ': streak ' + (fact ? fact.bestStreak : 0) + ', weight ' + (fact ? fact.weight : 5);
@@ -477,16 +675,105 @@
     }
   }
 
+  // --- History View ---
+  function renderHistory() {
+    var container = document.getElementById('history-list');
+    container.innerHTML = '';
+
+    var dates = Object.keys(data.history).sort().reverse().slice(0, 30);
+
+    if (dates.length === 0) {
+      container.innerHTML = '<p style="text-align:center;color:rgba(255,255,255,0.5);font-weight:700;">No sessions yet. Start practicing!</p>';
+      return;
+    }
+
+    for (var i = 0; i < dates.length; i++) {
+      var date = dates[i];
+      var entry = data.history[date];
+      var accuracy = entry.total > 0 ? Math.round((entry.correct / entry.total) * 100) : 0;
+
+      var div = document.createElement('div');
+      div.className = 'history-day';
+
+      var dateSpan = document.createElement('span');
+      dateSpan.className = 'history-date';
+      dateSpan.textContent = formatDate(date);
+
+      var statsSpan = document.createElement('span');
+      statsSpan.className = 'history-stats';
+      statsSpan.innerHTML = entry.correct + '/' + entry.total + ' <span class="history-accuracy">' + accuracy + '%</span>';
+
+      div.appendChild(dateSpan);
+      div.appendChild(statsSpan);
+      container.appendChild(div);
+    }
+  }
+
+  function formatDate(dateStr) {
+    var parts = dateStr.split('-');
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
+  }
+
+  // --- Weakest Facts View ---
+  function renderWeakest() {
+    var container = document.getElementById('weakest-list');
+    container.innerHTML = '';
+
+    var sorted = Object.entries(data.facts)
+      .sort(function (a, b) { return b[1].weight - a[1].weight; })
+      .slice(0, 20);
+
+    if (sorted.length === 0) {
+      container.innerHTML = '<p style="text-align:center;color:rgba(255,255,255,0.5);font-weight:700;">No facts yet.</p>';
+      return;
+    }
+
+    for (var i = 0; i < sorted.length; i++) {
+      var entry = sorted[i];
+      var key = entry[0];
+      var fact = entry[1];
+      var parts = key.split('x');
+      var level = masteryLevel(fact);
+
+      var div = document.createElement('div');
+      div.className = 'weakest-row';
+      if (level !== 'none') div.className += ' mastery-border-' + level;
+
+      var factSpan = document.createElement('span');
+      factSpan.className = 'weakest-fact';
+      factSpan.textContent = parts[0] + ' \u00D7 ' + parts[1] + ' = ' + (parts[0] * parts[1]);
+
+      var infoSpan = document.createElement('span');
+      infoSpan.className = 'weakest-info';
+      infoSpan.textContent = 'W:' + fact.weight + ' Best:' + fact.bestStreak;
+
+      div.appendChild(factSpan);
+      div.appendChild(infoSpan);
+      container.appendChild(div);
+    }
+  }
+
   // --- Home ---
   function renderHome() {
-    document.getElementById('daily-streak').textContent = data.dailyStreak + ' 🔥';
-    document.getElementById('personal-best').textContent = data.personalBest + '/min ⭐';
+    document.getElementById('daily-streak').textContent = data.dailyStreak + ' \uD83D\uDD25';
+    document.getElementById('personal-best').textContent = data.personalBest + '/min \u2B50';
     renderProgressGrid();
 
+    // Player level
+    var level = getPlayerLevel();
+    var goldPct = getGoldPercent();
+    document.getElementById('player-level').textContent = level.badge + ' ' + level.title + ' (' + goldPct + '% mastered)';
+    if (!data.lastTitle) {
+      data.lastTitle = level.title;
+      saveData();
+    }
+
     // Highlight selected timer
-    document.querySelectorAll('#timer-buttons button').forEach(function (btn) {
-      btn.classList.toggle('selected', parseInt(btn.dataset.minutes, 10) === data.settings.timerMinutes);
-    });
+    var timerBtns = document.querySelectorAll('#timer-buttons button');
+    for (var i = 0; i < timerBtns.length; i++) {
+      timerBtns[i].classList.toggle('selected', parseInt(timerBtns[i].dataset.minutes, 10) === data.settings.timerMinutes);
+    }
 
     // Last round button
     var btn = document.getElementById('last-round-btn');
@@ -508,16 +795,24 @@
   // --- Visibility API (pause when tab hidden) ---
   document.addEventListener('visibilitychange', function () {
     if (!session.timerInterval) return;
-    // Don't unpause if streak interstitial is showing
     if (!document.hidden && document.getElementById('streak-overlay').style.display !== 'none') return;
+    if (!document.hidden && document.getElementById('celebration-overlay').style.display !== 'none') return;
     session.paused = document.hidden;
   });
 
   // --- Transfer: Export / Import ---
-  // Canonical fact order (deterministic)
-  var FACT_KEYS = [];
+  // v1 canonical fact order (78 facts, for backward compat)
+  var FACT_KEYS_V1 = [];
   for (var a = 1; a <= 12; a++) {
     for (var b = a; b <= 12; b++) {
+      FACT_KEYS_V1.push(a + 'x' + b);
+    }
+  }
+
+  // v2 full fact order (144 facts)
+  var FACT_KEYS = [];
+  for (var a = 1; a <= 12; a++) {
+    for (var b = 1; b <= 12; b++) {
       FACT_KEYS.push(a + 'x' + b);
     }
   }
@@ -534,23 +829,21 @@
   }
 
   function exportCode() {
-    // Pack: [version 1B][dailyStreak 1B][personalBest×10 2B][78 facts × (weight 5b + bestStreak 4b)]
+    // v2: [version 1B][dailyStreak 1B][personalBest×10 2B][144 facts × (weight 5b + bestStreak 4b)]
     var bytes = [];
-    bytes.push(1); // version
+    bytes.push(2); // version 2
     bytes.push(Math.min(data.dailyStreak, 255));
     var pb = Math.min(Math.round(data.personalBest * 10), 65535);
     bytes.push((pb >> 8) & 0xFF);
     bytes.push(pb & 0xFF);
 
-    // Pack 78 facts: 9 bits each → bit stream
+    // Pack 144 facts: 9 bits each
     var bits = [];
     for (var i = 0; i < FACT_KEYS.length; i++) {
       var fact = data.facts[FACT_KEYS[i]];
       var w = fact ? Math.min(fact.weight, 31) : 5;
       var bs = fact ? Math.min(fact.bestStreak, 15) : 0;
-      // 5 bits weight
       for (var b = 4; b >= 0; b--) bits.push((w >> b) & 1);
-      // 4 bits bestStreak
       for (var b = 3; b >= 0; b--) bits.push((bs >> b) & 1);
     }
 
@@ -565,7 +858,6 @@
     // Append CRC
     bytes.push(crc8(bytes));
 
-    // Convert to hex string
     var hex = '';
     for (var i = 0; i < bytes.length; i++) {
       hex += ('0' + bytes[i].toString(16)).slice(-2);
@@ -587,9 +879,9 @@
     var storedCrc = bytes.pop();
     if (crc8(bytes) !== storedCrc) return 'Invalid code: checksum mismatch';
 
-    // Parse header
     var version = bytes[0];
-    if (version !== 1) return 'Unsupported code version';
+    if (version !== 1 && version !== 2) return 'Unsupported code version';
+
     var dailyStreak = bytes[1];
     var personalBest = ((bytes[2] << 8) | bytes[3]) / 10;
 
@@ -599,27 +891,34 @@
       for (var b = 7; b >= 0; b--) bits.push((bytes[i] >> b) & 1);
     }
 
-    // Decode 78 facts
+    var factKeys = (version === 1) ? FACT_KEYS_V1 : FACT_KEYS;
+
     var idx = 0;
-    for (var i = 0; i < FACT_KEYS.length; i++) {
+    for (var i = 0; i < factKeys.length; i++) {
       var w = 0;
       for (var b = 0; b < 5; b++) w = (w << 1) | (bits[idx++] || 0);
       var bs = 0;
       for (var b = 0; b < 4; b++) bs = (bs << 1) | (bits[idx++] || 0);
 
-      var key = FACT_KEYS[i];
+      var key = factKeys[i];
       if (!data.facts[key]) {
         data.facts[key] = { weight: w, correct: 0, attempts: 0, streak: 0, bestStreak: bs };
       } else {
         data.facts[key].weight = w;
         data.facts[key].bestStreak = bs;
-        // Reset streak since it's a fresh device
         data.facts[key].streak = 0;
       }
     }
 
     data.dailyStreak = dailyStreak;
     data.personalBest = personalBest;
+
+    // If v1, run migration to fill in reverse facts
+    if (version === 1) {
+      migrateToFullFacts();
+      initFacts(); // ensure all 144 exist
+    }
+
     saveData();
     renderHome();
     return null; // success
@@ -674,27 +973,54 @@
     }
   });
 
-  document.getElementById('submit-btn').addEventListener('click', submitAnswer);
-
-  function advanceAfterWrong() {
-    session.waitingForConfirm = false;
-    if (session.timerSeconds > 0 || session.paused) {
-      nextProblem();
+  // End session early
+  document.getElementById('end-btn').addEventListener('click', function () {
+    if (session.total > 0) {
+      endSession();
+    } else {
+      clearInterval(session.timerInterval);
+      session.timerSeconds = 0;
+      renderHome();
+      showScreen('home');
     }
-  }
+  });
 
-  document.getElementById('next-btn').addEventListener('click', advanceAfterWrong);
+  // Reset progress
+  document.getElementById('reset-btn').addEventListener('click', function () {
+    if (confirm('Reset ALL progress? This cannot be undone.')) {
+      data = defaults();
+      initFacts();
+      saveData();
+      renderHome();
+    }
+  });
+
+  // History navigation
+  document.getElementById('history-btn').addEventListener('click', function () {
+    renderHistory();
+    showScreen('history');
+  });
+  document.getElementById('history-back-btn').addEventListener('click', function () {
+    renderHome();
+    showScreen('home');
+  });
+
+  // Weakest facts navigation
+  document.getElementById('weakest-btn').addEventListener('click', function () {
+    renderWeakest();
+    showScreen('weakest');
+  });
+  document.getElementById('weakest-back-btn').addEventListener('click', function () {
+    renderHome();
+    showScreen('home');
+  });
+
+  document.getElementById('submit-btn').addEventListener('click', submitAnswer);
 
   document.getElementById('answer-input').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
       e.stopPropagation();
       submitAnswer();
-    }
-  });
-
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && session.waitingForConfirm) {
-      advanceAfterWrong();
     }
   });
 
@@ -711,9 +1037,10 @@
     if (!e.target.dataset.minutes) return;
     data.settings.timerMinutes = parseInt(e.target.dataset.minutes, 10);
     saveData();
-    document.querySelectorAll('#timer-buttons button').forEach(function (btn) {
-      btn.classList.toggle('selected', btn === e.target);
-    });
+    var btns = document.querySelectorAll('#timer-buttons button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('selected', btns[i] === e.target);
+    }
   });
 
   // --- Init ---
