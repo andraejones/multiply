@@ -221,16 +221,6 @@
   }
 
   // --- Player Level ---
-  function getGoldPercent() {
-    var keys = Object.keys(data.facts);
-    if (keys.length === 0) return 0;
-    var gold = 0;
-    for (var i = 0; i < keys.length; i++) {
-      if (getEffectiveWeight(data.facts[keys[i]]) <= 2) gold++;
-    }
-    return Math.round((gold / keys.length) * 100);
-  }
-
   // Weighted mastery score: bronze(w<=4)=1, silver(w<=3)=2, gold(w<=2)=3
   function getMasteryScore() {
     var keys = Object.keys(data.facts);
@@ -341,6 +331,7 @@
     var fb = document.getElementById('feedback');
 
     fact.weight += 3;
+    fact.attempts++;
     fact.streak = 0;
     session.streak = 0;
     session.streakCelebrated = false;
@@ -525,64 +516,6 @@
     { emoji: '\uD83D\uDCAB', msg: 'Unstoppable!' },
   ];
 
-  var streakParticleEmoji = ['\u2B50', '\u2728', '\uD83D\uDCAB', '\uD83C\uDF1F', '\uD83C\uDF89', '\uD83C\uDFC6'];
-
-  function showStreakCelebration(newBest, callback) {
-    session.paused = true;
-    var overlay = document.getElementById('streak-overlay');
-    var pick = streakMessages[Math.floor(Math.random() * streakMessages.length)];
-
-    var emojiEl = document.getElementById('streak-lost-emoji');
-    emojiEl.textContent = pick.emoji;
-    emojiEl.className = '';
-    void emojiEl.offsetWidth;
-    emojiEl.className = 'animate__animated animate__bounceIn';
-
-    var msgEl = document.getElementById('streak-lost-msg');
-    msgEl.textContent = newBest + ' in a row! ' + pick.msg;
-    msgEl.className = '';
-    void msgEl.offsetWidth;
-    msgEl.className = 'animate__animated animate__fadeInUp';
-
-    // Spawn falling particles
-    var container = document.getElementById('streak-particles');
-    container.innerHTML = '';
-    for (var i = 0; i < 15; i++) {
-      var p = document.createElement('span');
-      p.className = 'streak-particle';
-      p.textContent = streakParticleEmoji[Math.floor(Math.random() * streakParticleEmoji.length)];
-      p.style.left = Math.random() * 100 + '%';
-      p.style.animationDuration = (2 + Math.random() * 2) + 's';
-      p.style.animationDelay = (Math.random() * 1) + 's';
-      container.appendChild(p);
-    }
-
-    overlay.style.display = '';
-
-    var dismissed = false;
-    function dismiss() {
-      if (dismissed) return;
-      dismissed = true;
-      overlay.style.display = 'none';
-      container.innerHTML = '';
-      overlay.removeEventListener('click', dismiss);
-      document.removeEventListener('keydown', dismissKey);
-      session.paused = false;
-      if (callback) callback();
-    }
-
-    function dismissKey(e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        dismiss();
-      }
-    }
-
-    // Auto-dismiss after 2.5s, or tap/key to dismiss early
-    overlay.addEventListener('click', dismiss);
-    document.addEventListener('keydown', dismissKey);
-    setTimeout(dismiss, 2500);
-  }
-
   // --- Timer ---
   function startTimer() {
     updateTimerDisplay();
@@ -621,6 +554,8 @@
     session.questionTimeLeft = 0;
     celebrationQueue = [];
     celebrationShowing = false;
+    document.getElementById('celebration-overlay').style.display = 'none';
+    document.getElementById('streak-overlay').style.display = 'none';
     generateStars();
 
     document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
@@ -1098,6 +1033,13 @@
   // End session early
   document.getElementById('end-btn').addEventListener('click', function () {
     clearInterval(session.timerInterval);
+    clearInterval(session.questionTimerInterval);
+    document.getElementById('question-timer-wrap').style.display = 'none';
+    document.getElementById('celebration-overlay').style.display = 'none';
+    document.getElementById('streak-overlay').style.display = 'none';
+    celebrationQueue = [];
+    celebrationShowing = false;
+    session.paused = false;
     session.timerSeconds = 0;
     renderHome();
     showScreen('home');
