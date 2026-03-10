@@ -143,8 +143,22 @@
     </div>
 
     <div class="answer-area">
-      <input type="number" id="answer-input" inputmode="numeric" autocomplete="off" placeholder="?">
-      <button id="submit-btn" class="primary-btn">Go</button>
+      <input type="number" id="answer-input" readonly autocomplete="off" placeholder="?">
+    </div>
+
+    <div id="numpad">
+      <button class="numpad-btn" data-digit="1">1</button>
+      <button class="numpad-btn" data-digit="2">2</button>
+      <button class="numpad-btn" data-digit="3">3</button>
+      <button class="numpad-btn" data-digit="4">4</button>
+      <button class="numpad-btn" data-digit="5">5</button>
+      <button class="numpad-btn" data-digit="6">6</button>
+      <button class="numpad-btn" data-digit="7">7</button>
+      <button class="numpad-btn" data-digit="8">8</button>
+      <button class="numpad-btn" data-digit="9">9</button>
+      <button class="numpad-btn" id="numpad-back">&#x232B;</button>
+      <button class="numpad-btn" data-digit="0">0</button>
+      <button class="numpad-btn" id="numpad-submit">&#x2713;</button>
     </div>
 
     <div id="feedback" class="feedback"></div>

@@ -181,7 +181,6 @@
     var input = document.getElementById('answer-input');
     input.value = '';
     input.placeholder = '?';
-    input.focus();
     session.problemStartTime = Date.now();
     session.waitingForRetype = false;
     session.requiredRetype = null;
@@ -351,7 +350,6 @@
     session.requiredRetype = correctAnswer;
     input.value = '';
     input.placeholder = String(correctAnswer);
-    input.focus();
   }
 
   // --- Submit ---
@@ -462,7 +460,6 @@
       } else if (!justMastered && !leveledUp && !isNewBestStreak) {
         setTimeout(function () {
           if (!celebrationShowing && (session.timerSeconds > 0 || session.paused)) {
-            document.getElementById('answer-input').focus();
             nextProblem();
           }
         }, 400);
@@ -492,7 +489,6 @@
       session.requiredRetype = correctAnswer;
       input.value = '';
       input.placeholder = String(correctAnswer);
-      input.focus();
     }
   }
 
@@ -1075,18 +1071,29 @@
     showScreen('home');
   });
 
-  document.getElementById('practice').addEventListener('touchend', function (e) {
-    if (e.target.id === 'end-btn' || e.target.id === 'submit-btn') return;
-    if (!session.paused && session.timerSeconds > 0) {
-      document.getElementById('answer-input').focus();
+  document.getElementById('numpad').addEventListener('click', function (e) {
+    var btn = e.target.closest('.numpad-btn');
+    if (!btn || session.paused) return;
+    var input = document.getElementById('answer-input');
+    if (btn.id === 'numpad-submit') {
+      submitAnswer();
+    } else if (btn.id === 'numpad-back') {
+      input.value = String(input.value).slice(0, -1);
+    } else if (btn.dataset.digit !== undefined) {
+      if (String(input.value).length < 3) input.value += btn.dataset.digit;
     }
   });
 
-  document.getElementById('submit-btn').addEventListener('click', submitAnswer);
-
-  document.getElementById('answer-input').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-      e.stopPropagation();
+  document.addEventListener('keydown', function (e) {
+    if (!document.getElementById('practice').classList.contains('active')) return;
+    if (session.paused) return;
+    var input = document.getElementById('answer-input');
+    if (e.key >= '0' && e.key <= '9') {
+      if (String(input.value).length < 3) input.value += e.key;
+    } else if (e.key === 'Backspace') {
+      input.value = String(input.value).slice(0, -1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
       submitAnswer();
     }
   });

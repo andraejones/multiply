@@ -408,6 +408,7 @@ h2 {
   display: flex;
   gap: 12px;
   align-items: center;
+  justify-content: center;
 }
 
 #answer-input {
@@ -429,6 +430,44 @@ h2 {
 #answer-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+#numpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 280px;
+  margin: 16px auto 0;
+}
+
+.numpad-btn {
+  font-family: 'Nunito', sans-serif;
+  font-size: 1.75rem;
+  font-weight: 900;
+  padding: 18px 0;
+  background: rgba(167,139,250,0.15);
+  color: var(--text);
+  border: 2px solid rgba(167,139,250,0.3);
+  border-radius: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.1s, transform 0.1s;
+}
+
+.numpad-btn:active {
+  background: rgba(167,139,250,0.4);
+  transform: scale(0.94);
+}
+
+#numpad-submit {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+#numpad-submit:active {
+  background: var(--primary-dark);
 }
 
 .feedback {
