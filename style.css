@@ -30,58 +30,41 @@ body {
 }
 
 /* Starfield background */
-body::before,
-body::after {
-  content: '';
+#star-field {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: -1;
 }
 
-body::before {
-  background:
-    radial-gradient(1px 1px at 10% 15%, #fff 50%, transparent 100%),
-    radial-gradient(1px 1px at 25% 35%, rgba(255,255,255,0.8) 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 40% 70%, #fff 50%, transparent 100%),
-    radial-gradient(1px 1px at 55% 20%, rgba(255,255,255,0.6) 50%, transparent 100%),
-    radial-gradient(1px 1px at 70% 55%, #fff 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 85% 80%, rgba(255,255,255,0.9) 50%, transparent 100%),
-    radial-gradient(1px 1px at 15% 85%, rgba(255,255,255,0.7) 50%, transparent 100%),
-    radial-gradient(1px 1px at 90% 10%, #fff 50%, transparent 100%),
-    radial-gradient(1px 1px at 50% 50%, rgba(255,255,255,0.5) 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 65% 40%, #fff 50%, transparent 100%),
-    radial-gradient(1px 1px at 30% 90%, rgba(255,255,255,0.8) 50%, transparent 100%),
-    radial-gradient(1px 1px at 80% 30%, rgba(255,255,255,0.6) 50%, transparent 100%),
-    radial-gradient(1px 1px at 5% 55%, #fff 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 95% 65%, rgba(255,255,255,0.7) 50%, transparent 100%),
-    radial-gradient(1px 1px at 45% 5%, rgba(255,255,255,0.9) 50%, transparent 100%),
-    radial-gradient(1px 1px at 60% 95%, #fff 50%, transparent 100%),
-    radial-gradient(1px 1px at 20% 60%, rgba(255,255,255,0.5) 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 75% 15%, #fff 50%, transparent 100%);
-  animation: twinkle 4s ease-in-out infinite alternate;
+.star {
+  position: absolute;
+  background: #fff;
+  border-radius: 50%;
+  animation: star-blink var(--dur) ease-in-out var(--delay) infinite alternate;
 }
 
-body::after {
-  background:
-    radial-gradient(1px 1px at 8% 42%, rgba(255,255,255,0.6) 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 22% 78%, #fff 50%, transparent 100%),
-    radial-gradient(1px 1px at 38% 12%, rgba(255,255,255,0.7) 50%, transparent 100%),
-    radial-gradient(1px 1px at 52% 88%, rgba(255,255,255,0.5) 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 68% 28%, #fff 50%, transparent 100%),
-    radial-gradient(1px 1px at 82% 62%, rgba(255,255,255,0.8) 50%, transparent 100%),
-    radial-gradient(1px 1px at 92% 48%, rgba(255,255,255,0.6) 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 12% 32%, #fff 50%, transparent 100%),
-    radial-gradient(1px 1px at 48% 72%, rgba(255,255,255,0.7) 50%, transparent 100%),
-    radial-gradient(1px 1px at 78% 8%, rgba(255,255,255,0.9) 50%, transparent 100%),
-    radial-gradient(1px 1px at 35% 55%, #fff 50%, transparent 100%),
-    radial-gradient(1.5px 1.5px at 58% 38%, rgba(255,255,255,0.6) 50%, transparent 100%);
-  animation: twinkle 5s ease-in-out 1s infinite alternate-reverse;
+@keyframes star-blink {
+  0%   { opacity: var(--lo); }
+  100% { opacity: var(--hi); }
 }
 
-@keyframes twinkle {
-  0% { opacity: 0.5; }
-  100% { opacity: 1; }
+/* Question timer bar */
+#question-timer-wrap {
+  width: 100%;
+  max-width: 300px;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  margin: 8px 0;
+}
+
+#question-timer-bar {
+  height: 100%;
+  background: var(--wrong);
+  border-radius: 3px;
+  width: 100%;
+  transition: width 0.1s linear;
 }
 
 section {

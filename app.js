@@ -33,6 +33,8 @@
     totalTime: 0,
     waitingForRetype: false,
     requiredRetype: null,
+    questionTimerInterval: null,
+    questionTimeLeft: 0,
   };
 
   // --- Defaults ---
@@ -188,6 +190,27 @@
     var fb = document.getElementById('feedback');
     fb.textContent = '';
     fb.className = 'feedback';
+
+    // Start per-question timer
+    session.questionTimeLeft = 10000;
+    clearInterval(session.questionTimerInterval);
+    var qWrap = document.getElementById('question-timer-wrap');
+    var qBar = document.getElementById('question-timer-bar');
+    qWrap.style.display = 'none';
+    qBar.style.width = '100%';
+    session.questionTimerInterval = setInterval(function () {
+      if (session.paused) return;
+      session.questionTimeLeft -= 100;
+      if (session.questionTimeLeft <= 3000) {
+        qWrap.style.display = '';
+        qBar.style.width = Math.max(0, (session.questionTimeLeft / 3000) * 100) + '%';
+      }
+      if (session.questionTimeLeft <= 0) {
+        clearInterval(session.questionTimerInterval);
+        qWrap.style.display = 'none';
+        autoExpire();
+      }
+    }, 100);
   }
 
   // --- Confetti Helper ---
@@ -308,9 +331,43 @@
     setTimeout(dismiss, 2500);
   }
 
+  // --- Auto-expire (time ran out on question) ---
+  function autoExpire() {
+    var key = session.currentFact;
+    var fact = data.facts[key];
+    var parts = key.split('x').map(Number);
+    var correctAnswer = parts[0] * parts[1];
+    var input = document.getElementById('answer-input');
+    var fb = document.getElementById('feedback');
+
+    fact.weight += 3;
+    fact.streak = 0;
+    session.streak = 0;
+    session.streakCelebrated = false;
+    session.total++;
+    session.totalTime += 10000;
+
+    if (!session.wrongFacts.includes(key)) session.wrongFacts.push(key);
+
+    fb.textContent = correctAnswer + '  \u2014 ' + parts[0] + ' \u00D7 ' + parts[1] + ' = ' + correctAnswer;
+    fb.className = 'feedback wrong';
+    document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
+    document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
+    document.getElementById('session-score').textContent = session.correct + ' correct';
+    saveData();
+
+    session.waitingForRetype = true;
+    session.requiredRetype = correctAnswer;
+    input.value = '';
+    input.placeholder = String(correctAnswer);
+    input.focus();
+  }
+
   // --- Submit ---
   function submitAnswer() {
     if (session.paused) return;
+    clearInterval(session.questionTimerInterval);
+    document.getElementById('question-timer-wrap').style.display = 'none';
     var input = document.getElementById('answer-input');
 
     // Handle retype mode
@@ -414,6 +471,7 @@
       } else if (!justMastered && !leveledUp && !isNewBestStreak) {
         setTimeout(function () {
           if (!celebrationShowing && (session.timerSeconds > 0 || session.paused)) {
+            document.getElementById('answer-input').focus();
             nextProblem();
           }
         }, 400);
@@ -529,7 +587,7 @@
   function startTimer() {
     updateTimerDisplay();
     session.timerInterval = setInterval(function () {
-      if (session.paused) return;
+      if (session.paused || session.waitingForRetype) return;
       session.timerSeconds--;
       updateTimerDisplay();
       if (session.timerSeconds <= 0) {
@@ -559,8 +617,11 @@
     session.streakCelebrated = false;
     session.totalTime = 0;
     session.timerSeconds = data.settings.timerMinutes * 60;
+    clearInterval(session.questionTimerInterval);
+    session.questionTimeLeft = 0;
     celebrationQueue = [];
     celebrationShowing = false;
+    generateStars();
 
     document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
     document.getElementById('best-streak-display').textContent = 'Best: 0';
@@ -573,6 +634,9 @@
 
   function endSession() {
     clearInterval(session.timerInterval);
+    clearInterval(session.questionTimerInterval);
+    session.questionTimeLeft = 0;
+    document.getElementById('question-timer-wrap').style.display = 'none';
 
     // Compute rate before zeroing timerSeconds
     var elapsedMinutes = data.settings.timerMinutes - (session.timerSeconds / 60);
@@ -1069,6 +1133,13 @@
     showScreen('home');
   });
 
+  document.getElementById('practice').addEventListener('touchend', function (e) {
+    if (e.target.id === 'end-btn' || e.target.id === 'submit-btn') return;
+    if (!session.paused && session.timerSeconds > 0) {
+      document.getElementById('answer-input').focus();
+    }
+  });
+
   document.getElementById('submit-btn').addEventListener('click', submitAnswer);
 
   document.getElementById('answer-input').addEventListener('keydown', function (e) {
@@ -1097,12 +1168,36 @@
     }
   });
 
+  // --- Randomized Starfield ---
+  function generateStars() {
+    var container = document.getElementById('star-field');
+    container.innerHTML = '';
+    for (var i = 0; i < 80; i++) {
+      var s = document.createElement('div');
+      s.className = 'star';
+      var size = 0.5 + Math.random() * 1.5;
+      var lo = (0.1 + Math.random() * 0.25).toFixed(2);
+      var hi = Math.min(1, parseFloat(lo) + 0.3 + Math.random() * 0.35).toFixed(2);
+      s.style.cssText =
+        'left:' + (Math.random() * 100).toFixed(1) + '%;' +
+        'top:' + (Math.random() * 100).toFixed(1) + '%;' +
+        'width:' + size.toFixed(1) + 'px;' +
+        'height:' + size.toFixed(1) + 'px;' +
+        '--dur:' + (2 + Math.random() * 5).toFixed(1) + 's;' +
+        '--delay:' + (Math.random() * 5).toFixed(1) + 's;' +
+        '--lo:' + lo + ';' +
+        '--hi:' + hi + ';';
+      container.appendChild(s);
+    }
+  }
+
   // --- Init ---
   function init() {
     loadData();
     initFacts();
     renderHome();
     showScreen('home');
+    generateStars();
   }
 
   init();
