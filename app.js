@@ -107,6 +107,17 @@
     }
   }
 
+  // --- Decay ---
+  var DECAY_DAYS = 14;
+
+  function getEffectiveWeight(fact) {
+    if (!fact || fact.weight >= 5 || !fact.lastCorrect) return fact ? fact.weight : 5;
+    var days = (Date.now() - fact.lastCorrect) / 86400000;
+    if (days <= 0) return fact.weight;
+    var decay = Math.min(1, days / DECAY_DAYS);
+    return Math.round(fact.weight + (5 - fact.weight) * decay);
+  }
+
   // --- Facts ---
   function initFacts() {
     for (var a = 1; a <= 12; a++) {
@@ -192,7 +203,7 @@
     if (keys.length === 0) return 0;
     var gold = 0;
     for (var i = 0; i < keys.length; i++) {
-      if (data.facts[keys[i]].weight <= 2) gold++;
+      if (getEffectiveWeight(data.facts[keys[i]]) <= 2) gold++;
     }
     return Math.round((gold / keys.length) * 100);
   }
@@ -203,7 +214,7 @@
     if (keys.length === 0) return 0;
     var points = 0;
     for (var i = 0; i < keys.length; i++) {
-      var w = data.facts[keys[i]].weight;
+      var w = getEffectiveWeight(data.facts[keys[i]]);
       if (w <= 2) points += 3;
       else if (w <= 3) points += 2;
       else if (w <= 4) points += 1;
@@ -340,7 +351,7 @@
 
     if (value === correctAnswer) {
       input.value = '';
-      var oldWeight = fact.weight;
+      var oldWeight = getEffectiveWeight(fact);
       fact.correct++;
       fact.streak++;
       if (fact.streak > fact.bestStreak) fact.bestStreak = fact.streak;
@@ -348,6 +359,7 @@
       if (elapsed <= FAST_THRESHOLD) {
         fact.weight = Math.max(1, fact.weight - 1);
       }
+      fact.lastCorrect = Date.now();
 
       session.correct++;
       session.streak++;
@@ -655,9 +667,10 @@
   // --- Progress Grid ---
   function masteryLevel(fact) {
     if (!fact) return 'none';
-    if (fact.weight <= 2) return 'gold';
-    if (fact.weight <= 3) return 'silver';
-    if (fact.weight <= 4) return 'bronze';
+    var w = getEffectiveWeight(fact);
+    if (w <= 2) return 'gold';
+    if (w <= 3) return 'silver';
+    if (w <= 4) return 'bronze';
     return 'none';
   }
 
@@ -689,7 +702,7 @@
         var fact = data.facts[key];
         td.className = 'mastery-' + masteryLevel(fact);
         td.textContent = r * c;
-        td.title = key + ': streak ' + (fact ? fact.bestStreak : 0) + ', weight ' + (fact ? fact.weight : 5);
+        td.title = key + ': weight ' + (fact ? getEffectiveWeight(fact) : 5);
         row.appendChild(td);
       }
       table.appendChild(row);
@@ -742,7 +755,7 @@
     container.innerHTML = '';
 
     var sorted = Object.entries(data.facts)
-      .sort(function (a, b) { return b[1].weight - a[1].weight; })
+      .sort(function (a, b) { return getEffectiveWeight(b[1]) - getEffectiveWeight(a[1]); })
       .slice(0, 20);
 
     if (sorted.length === 0) {
@@ -767,7 +780,7 @@
 
       var infoSpan = document.createElement('span');
       infoSpan.className = 'weakest-info';
-      infoSpan.textContent = 'W:' + fact.weight + ' Best:' + fact.bestStreak;
+      infoSpan.textContent = 'W:' + getEffectiveWeight(fact);
 
       div.appendChild(factSpan);
       div.appendChild(infoSpan);
