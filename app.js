@@ -4,6 +4,133 @@
   var STORAGE_KEY = 'multiply-trainer';
   var FAST_THRESHOLD = 5000; // ms
 
+  // --- Challenge Mode ---
+  var CHALLENGE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+  var CHALLENGE_EPOCH = Date.UTC(2025, 0, 1);
+
+  function mulberry32(seed) {
+    return function () {
+      seed |= 0;
+      seed = (seed + 0x6D2B79F5) | 0;
+      var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function buildChallengeSequence(seed, factMask) {
+    var facts = [];
+    var selected = [];
+    for (var bit = 0; bit < 12; bit++) {
+      if (factMask & (1 << bit)) selected.push(bit + 1);
+    }
+    var seen = {};
+    for (var i = 0; i < selected.length; i++) {
+      var m = selected[i];
+      for (var n = 1; n <= 12; n++) {
+        var k1 = m + 'x' + n;
+        var k2 = n + 'x' + m;
+        if (!seen[k1]) { facts.push(k1); seen[k1] = true; }
+        if (!seen[k2]) { facts.push(k2); seen[k2] = true; }
+      }
+    }
+    var rng = mulberry32(seed);
+    for (var i = facts.length - 1; i > 0; i--) {
+      var j = Math.floor(rng() * (i + 1));
+      var tmp = facts[i];
+      facts[i] = facts[j];
+      facts[j] = tmp;
+    }
+    return facts;
+  }
+
+  function encodeChallenge(config) {
+    var minutesSinceEpoch = Math.floor((config.startTime - CHALLENGE_EPOCH) / 60000);
+    minutesSinceEpoch = Math.max(0, Math.min((1 << 22) - 1, minutesSinceEpoch));
+    var roundVal = Math.max(0, Math.min(7, config.roundMinutes - 1));
+
+    var bits = [];
+    for (var i = 21; i >= 0; i--) bits.push((minutesSinceEpoch >> i) & 1);
+    for (var i = 2; i >= 0; i--) bits.push((roundVal >> i) & 1);
+    for (var i = 11; i >= 0; i--) bits.push((config.factMask >> i) & 1);
+    for (var i = 19; i >= 0; i--) bits.push((config.seed >> i) & 1);
+
+    var digits = [];
+    for (var d = 0; d < 12; d++) {
+      var remainder = 0;
+      var newBits = [];
+      for (var i = 0; i < bits.length; i++) {
+        remainder = remainder * 2 + bits[i];
+        newBits.push(Math.floor(remainder / 31));
+        remainder = remainder % 31;
+      }
+      digits.push(remainder);
+      var start = 0;
+      while (start < newBits.length - 1 && newBits[start] === 0) start++;
+      bits = newBits.slice(start);
+    }
+    digits.reverse();
+
+    var code = '';
+    for (var i = 0; i < 12; i++) {
+      code += CHALLENGE_ALPHABET[digits[i]];
+    }
+    return code.slice(0, 4) + '-' + code.slice(4, 8) + '-' + code.slice(8, 12);
+  }
+
+  function decodeChallenge(codeStr) {
+    var code = codeStr.replace(/-/g, '').toUpperCase();
+    if (code.length !== 12) return null;
+
+    var digits = [];
+    for (var i = 0; i < 12; i++) {
+      var idx = CHALLENGE_ALPHABET.indexOf(code[i]);
+      if (idx === -1) return null;
+      digits.push(idx);
+    }
+
+    var value = [0];
+    for (var d = 0; d < 12; d++) {
+      var carry = digits[d];
+      var temp = [];
+      for (var i = value.length - 1; i >= 0; i--) {
+        var product = value[i] * 31 + carry;
+        temp.unshift(product & 0xFF);
+        carry = product >> 8;
+      }
+      while (carry > 0) {
+        temp.unshift(carry & 0xFF);
+        carry >>= 8;
+      }
+      value = temp;
+    }
+
+    var allBits = [];
+    for (var i = 0; i < value.length; i++) {
+      for (var b = 7; b >= 0; b--) {
+        allBits.push((value[i] >> b) & 1);
+      }
+    }
+    while (allBits.length < 57) allBits.unshift(0);
+    if (allBits.length > 57) allBits = allBits.slice(allBits.length - 57);
+
+    var startTimestamp = 0;
+    for (var i = 0; i < 22; i++) startTimestamp = startTimestamp * 2 + allBits[i];
+    var roundVal = 0;
+    for (var i = 22; i < 25; i++) roundVal = roundVal * 2 + allBits[i];
+    var factMask = 0;
+    for (var i = 25; i < 37; i++) factMask = factMask * 2 + allBits[i];
+    var seed = 0;
+    for (var i = 37; i < 57; i++) seed = seed * 2 + allBits[i];
+
+    return {
+      startTime: CHALLENGE_EPOCH + startTimestamp * 60000,
+      roundMinutes: roundVal + 1,
+      factMask: factMask,
+      seed: seed,
+    };
+  }
+
   // --- Player Levels (space-themed) ---
   var LEVELS = [
     { min: 0,   title: 'Space Cadet',       badge: '\uD83E\uDDD1\u200D\uD83D\uDE80' },
@@ -35,6 +162,11 @@
     requiredRetype: null,
     questionTimerInterval: null,
     questionTimeLeft: 0,
+    challengeMode: false,
+    challengeConfig: null,
+    challengeSequence: [],
+    challengeIndex: 0,
+    challengeCountdownInterval: null,
   };
 
   // --- Defaults ---
@@ -168,7 +300,13 @@
 
   // --- Problem Display ---
   function nextProblem() {
-    var key = pickNextFact();
+    var key;
+    if (session.challengeMode && session.challengeSequence.length > 0) {
+      key = session.challengeSequence[session.challengeIndex % session.challengeSequence.length];
+      session.challengeIndex++;
+    } else {
+      key = pickNextFact();
+    }
     session.currentFact = key;
     session.previousFact = key;
 
@@ -533,6 +671,10 @@
 
   // --- Session ---
   function startSession() {
+    session.challengeMode = false;
+    session.challengeConfig = null;
+    session.challengeSequence = [];
+    session.challengeIndex = 0;
     session.correct = 0;
     session.total = 0;
     session.streak = 0;
@@ -553,6 +695,45 @@
     document.getElementById('celebration-overlay').style.display = 'none';
     document.getElementById('streak-overlay').style.display = 'none';
     generateStars();
+
+    document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
+    document.getElementById('best-streak-display').textContent = 'Best: 0';
+    document.getElementById('session-score').textContent = '0 correct';
+
+    showScreen('practice');
+    startTimer();
+    nextProblem();
+  }
+
+  function startChallengeSession(config) {
+    session.challengeMode = true;
+    session.challengeConfig = config;
+    session.challengeSequence = buildChallengeSequence(config.seed, config.factMask);
+    session.challengeIndex = 0;
+
+    session.correct = 0;
+    session.total = 0;
+    session.streak = 0;
+    session.bestStreak = 0;
+    session.previousFact = null;
+    session.currentFact = null;
+    session.paused = false;
+    session.wrongFacts = [];
+    session.waitingForRetype = false;
+    session.requiredRetype = null;
+    session.streakCelebrated = false;
+    session.totalTime = 0;
+    session.timerSeconds = config.roundMinutes * 60;
+    clearInterval(session.questionTimerInterval);
+    session.questionTimeLeft = 0;
+    celebrationQueue = [];
+    celebrationShowing = false;
+    document.getElementById('celebration-overlay').style.display = 'none';
+    document.getElementById('streak-overlay').style.display = 'none';
+    generateStars();
+
+    session._origTimerMinutes = data.settings.timerMinutes;
+    data.settings.timerMinutes = config.roundMinutes;
 
     document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
     document.getElementById('best-streak-display').textContent = 'Best: 0';
@@ -614,6 +795,17 @@
       rate: rate,
       bestStreak: session.bestStreak,
     };
+
+    // Show/hide share button based on challenge mode
+    var shareBtn = document.getElementById('share-score-btn');
+    if (shareBtn) {
+      shareBtn.style.display = session.challengeMode ? '' : 'none';
+    }
+
+    // Restore timer setting if overridden by challenge
+    if (session.challengeMode && session._origTimerMinutes !== undefined) {
+      data.settings.timerMinutes = session._origTimerMinutes;
+    }
 
     saveData();
     renderSummary();
@@ -1030,6 +1222,7 @@
   document.getElementById('end-btn').addEventListener('click', function () {
     clearInterval(session.timerInterval);
     clearInterval(session.questionTimerInterval);
+    clearInterval(session.challengeCountdownInterval);
     document.getElementById('question-timer-wrap').style.display = 'none';
     document.getElementById('celebration-overlay').style.display = 'none';
     document.getElementById('streak-overlay').style.display = 'none';
@@ -1037,6 +1230,10 @@
     celebrationShowing = false;
     session.paused = false;
     session.timerSeconds = 0;
+    if (session.challengeMode && session._origTimerMinutes !== undefined) {
+      data.settings.timerMinutes = session._origTimerMinutes;
+    }
+    session.challengeMode = false;
     renderHome();
     showScreen('home');
   });
@@ -1114,6 +1311,203 @@
     var btns = document.querySelectorAll('#timer-buttons button');
     for (var i = 0; i < btns.length; i++) {
       btns[i].classList.toggle('selected', btns[i] === e.target);
+    }
+  });
+
+  // --- Challenge Event Listeners ---
+  var challengeStartMinutes = 5;
+  var challengeRoundMinutes = 3;
+  var challengeFactMask = 0xFFF;
+
+  function startChallengeCountdown(config) {
+    var codeEl = document.getElementById('challenge-show-code');
+    var countdownEl = document.getElementById('challenge-countdown');
+    var summaryEl = document.getElementById('challenge-config-summary');
+
+    codeEl.textContent = encodeChallenge(config);
+
+    var selectedNums = [];
+    for (var i = 0; i < 12; i++) {
+      if (config.factMask & (1 << i)) selectedNums.push(i + 1);
+    }
+    var factsStr = selectedNums.length === 12 ? 'All facts' : 'Facts: ' + selectedNums.join(', ');
+    summaryEl.innerHTML = config.roundMinutes + ' min round &middot; ' + factsStr;
+
+    showScreen('challenge-wait');
+
+    clearInterval(session.challengeCountdownInterval);
+    session.challengeCountdownInterval = setInterval(function () {
+      var remaining = config.startTime - Date.now();
+      if (remaining <= 0) {
+        clearInterval(session.challengeCountdownInterval);
+        countdownEl.textContent = '00:00';
+        startChallengeSession(config);
+        return;
+      }
+      var totalSec = Math.ceil(remaining / 1000);
+      var m = Math.floor(totalSec / 60);
+      var s = totalSec % 60;
+      countdownEl.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }, 100);
+  }
+
+  document.getElementById('challenge-btn').addEventListener('click', function () {
+    challengeStartMinutes = 5;
+    challengeRoundMinutes = 3;
+    challengeFactMask = 0xFFF;
+    document.getElementById('challenge-start-val').textContent = '5';
+    document.getElementById('challenge-code-input').value = '';
+    document.getElementById('challenge-join-error').textContent = '';
+    // Reset round buttons
+    var rBtns = document.querySelectorAll('#challenge-round-buttons button');
+    for (var i = 0; i < rBtns.length; i++) {
+      rBtns[i].classList.toggle('selected', parseInt(rBtns[i].dataset.minutes, 10) === 3);
+    }
+    // Reset fact toggles
+    var fBtns = document.querySelectorAll('.fact-toggle');
+    for (var i = 0; i < fBtns.length; i++) {
+      fBtns[i].classList.add('selected');
+    }
+    showScreen('challenge');
+  });
+
+  document.getElementById('challenge-back-btn').addEventListener('click', function () {
+    renderHome();
+    showScreen('home');
+  });
+
+  document.getElementById('challenge').addEventListener('click', function (e) {
+    var adjBtn = e.target.closest('.challenge-start-adj');
+    if (!adjBtn) return;
+    var adj = parseInt(adjBtn.dataset.adj, 10);
+    challengeStartMinutes = Math.max(1, Math.min(60, challengeStartMinutes + adj));
+    document.getElementById('challenge-start-val').textContent = challengeStartMinutes;
+  });
+
+  document.getElementById('challenge-round-buttons').addEventListener('click', function (e) {
+    if (!e.target.dataset.minutes) return;
+    challengeRoundMinutes = parseInt(e.target.dataset.minutes, 10);
+    var btns = document.querySelectorAll('#challenge-round-buttons button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('selected', btns[i] === e.target);
+    }
+  });
+
+  document.getElementById('fact-toggles').addEventListener('click', function (e) {
+    var btn = e.target.closest('.fact-toggle');
+    if (!btn) return;
+
+    if (btn.dataset.fact === 'all') {
+      var allSelected = btn.classList.contains('selected');
+      var toggles = document.querySelectorAll('.fact-toggle');
+      for (var i = 0; i < toggles.length; i++) {
+        if (allSelected) toggles[i].classList.remove('selected');
+        else toggles[i].classList.add('selected');
+      }
+    } else {
+      btn.classList.toggle('selected');
+      var allBtn = document.querySelector('.fact-toggle[data-fact="all"]');
+      var numBtns = document.querySelectorAll('.fact-toggle:not([data-fact="all"])');
+      var allOn = true;
+      for (var i = 0; i < numBtns.length; i++) {
+        if (!numBtns[i].classList.contains('selected')) { allOn = false; break; }
+      }
+      allBtn.classList.toggle('selected', allOn);
+    }
+
+    challengeFactMask = 0;
+    var numBtns = document.querySelectorAll('.fact-toggle:not([data-fact="all"])');
+    for (var i = 0; i < numBtns.length; i++) {
+      if (numBtns[i].classList.contains('selected')) {
+        challengeFactMask |= (1 << (parseInt(numBtns[i].dataset.fact, 10) - 1));
+      }
+    }
+  });
+
+  document.getElementById('generate-code-btn').addEventListener('click', function () {
+    if (challengeFactMask === 0) {
+      alert('Select at least one fact group.');
+      return;
+    }
+    var startTime = Math.floor((Date.now() + challengeStartMinutes * 60000) / 60000) * 60000;
+    var seed = Math.floor(Math.random() * (1 << 20));
+    var config = {
+      startTime: startTime,
+      roundMinutes: challengeRoundMinutes,
+      factMask: challengeFactMask,
+      seed: seed,
+    };
+    startChallengeCountdown(config);
+  });
+
+  document.getElementById('join-challenge-btn').addEventListener('click', function () {
+    var input = document.getElementById('challenge-code-input');
+    var errorEl = document.getElementById('challenge-join-error');
+    var code = input.value.trim();
+
+    var config = decodeChallenge(code);
+    if (!config) {
+      errorEl.textContent = 'Invalid code. Check and try again.';
+      errorEl.style.color = 'var(--wrong)';
+      return;
+    }
+    if (config.factMask === 0) {
+      errorEl.textContent = 'Invalid challenge: no facts selected.';
+      errorEl.style.color = 'var(--wrong)';
+      return;
+    }
+
+    errorEl.textContent = '';
+    if (config.startTime <= Date.now()) {
+      startChallengeSession(config);
+    } else {
+      startChallengeCountdown(config);
+    }
+  });
+
+  document.getElementById('challenge-cancel-btn').addEventListener('click', function () {
+    clearInterval(session.challengeCountdownInterval);
+    showScreen('challenge');
+  });
+
+  document.getElementById('challenge-copy-code-btn').addEventListener('click', function () {
+    var code = document.getElementById('challenge-show-code').textContent;
+    navigator.clipboard.writeText(code).then(function () {
+      document.getElementById('challenge-copy-code-btn').textContent = 'Copied!';
+      setTimeout(function () {
+        document.getElementById('challenge-copy-code-btn').textContent = 'Copy';
+      }, 2000);
+    });
+  });
+
+  document.getElementById('challenge-code-input').addEventListener('input', function () {
+    var raw = this.value.replace(/[^a-zA-Z2-9]/g, '').toUpperCase().slice(0, 12);
+    var formatted = '';
+    for (var i = 0; i < raw.length; i++) {
+      if (i > 0 && i % 4 === 0) formatted += '-';
+      formatted += raw[i];
+    }
+    this.value = formatted;
+  });
+
+  document.getElementById('share-score-btn').addEventListener('click', function () {
+    var accuracy = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
+    var code = session.challengeConfig ? encodeChallenge(session.challengeConfig) : '';
+    var text = 'Multiply! Challenge Result\n' +
+      session.correct + ' correct / ' + session.total + ' total (' + accuracy + '%)\n' +
+      'Best Streak: ' + session.bestStreak + '\n' +
+      'Code: ' + code + '\n' +
+      'Can you beat my score?';
+
+    if (navigator.share) {
+      navigator.share({ text: text }).catch(function () {});
+    } else {
+      navigator.clipboard.writeText(text).then(function () {
+        document.getElementById('share-score-btn').textContent = 'Copied!';
+        setTimeout(function () {
+          document.getElementById('share-score-btn').textContent = 'Share Score';
+        }, 2000);
+      });
     }
   });
 

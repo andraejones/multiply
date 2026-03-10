@@ -674,6 +674,130 @@ h2 {
   }
 }
 
+/* Challenge screens */
+.challenge-panel {
+  width: 100%;
+  background: var(--card-bg);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.challenge-field {
+  width: 100%;
+  text-align: center;
+}
+
+.challenge-field label {
+  font-weight: 700;
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255,255,255,0.6);
+}
+
+.challenge-start-selector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.challenge-start-selector span {
+  font-size: 2rem;
+  font-weight: 900;
+  min-width: 60px;
+  text-align: center;
+}
+
+.challenge-start-adj {
+  width: 48px !important;
+  height: 48px !important;
+  padding: 0 !important;
+  font-size: 1.5rem !important;
+}
+
+.fact-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.fact-toggle {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 8px 12px;
+  border: 2px solid rgba(167,139,250,0.3);
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 40px;
+}
+
+.fact-toggle.selected {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.challenge-code-input {
+  font-family: 'Nunito', monospace;
+  font-size: 1.5rem;
+  font-weight: 900;
+  text-align: center;
+  padding: 12px;
+  width: 100%;
+  max-width: 280px;
+  border: 3px solid rgba(167,139,250,0.5);
+  border-radius: 16px;
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.challenge-code-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card-bg);
+  border-radius: 16px;
+  padding: 16px 24px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+#challenge-show-code {
+  font-family: 'Nunito', monospace;
+  font-size: 1.6rem;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: var(--primary);
+}
+
+.challenge-countdown {
+  font-size: 5rem;
+  font-weight: 900;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.challenge-config-summary {
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.6);
+  line-height: 1.6;
+}
+
 /* Animations */
 @keyframes pop {
   0% { transform: scale(1); }

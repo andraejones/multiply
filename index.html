@@ -56,6 +56,8 @@
       <button id="weakest-btn" class="secondary-btn">Weakest Facts</button>
     </div>
 
+    <button id="challenge-btn" class="secondary-btn">Challenge a Friend</button>
+
     <button id="last-round-btn" class="secondary-btn" style="display:none;">Last Round Stats</button>
 
     <!-- LAST ROUND PANEL -->
@@ -125,6 +127,78 @@
     <h1>Weakest Facts</h1>
     <div id="weakest-list" class="weakest-list"></div>
     <button id="weakest-back-btn" class="secondary-btn">Back Home</button>
+  </section>
+
+  <!-- CHALLENGE SCREEN -->
+  <section id="challenge">
+    <h1>Challenge</h1>
+    <p class="subtitle">Play the same problems &amp; compare scores</p>
+
+    <div class="challenge-panel">
+      <h2>Create Challenge</h2>
+      <div class="challenge-field">
+        <label>Start In (minutes)</label>
+        <div class="challenge-start-selector">
+          <button class="numpad-btn challenge-start-adj" data-adj="-1">-</button>
+          <span id="challenge-start-val">5</span>
+          <button class="numpad-btn challenge-start-adj" data-adj="1">+</button>
+        </div>
+      </div>
+      <div class="challenge-field">
+        <label>Round Length</label>
+        <div class="timer-buttons" id="challenge-round-buttons">
+          <button data-minutes="1">1 min</button>
+          <button data-minutes="2">2 min</button>
+          <button data-minutes="3" class="selected">3 min</button>
+          <button data-minutes="4">4 min</button>
+          <button data-minutes="5">5 min</button>
+        </div>
+      </div>
+      <div class="challenge-field">
+        <label>Facts to Include</label>
+        <div class="fact-toggles" id="fact-toggles">
+          <button class="fact-toggle selected" data-fact="all">All</button>
+          <button class="fact-toggle selected" data-fact="1">1</button>
+          <button class="fact-toggle selected" data-fact="2">2</button>
+          <button class="fact-toggle selected" data-fact="3">3</button>
+          <button class="fact-toggle selected" data-fact="4">4</button>
+          <button class="fact-toggle selected" data-fact="5">5</button>
+          <button class="fact-toggle selected" data-fact="6">6</button>
+          <button class="fact-toggle selected" data-fact="7">7</button>
+          <button class="fact-toggle selected" data-fact="8">8</button>
+          <button class="fact-toggle selected" data-fact="9">9</button>
+          <button class="fact-toggle selected" data-fact="10">10</button>
+          <button class="fact-toggle selected" data-fact="11">11</button>
+          <button class="fact-toggle selected" data-fact="12">12</button>
+        </div>
+      </div>
+      <button id="generate-code-btn" class="primary-btn">Generate Code</button>
+    </div>
+
+    <div class="challenge-panel">
+      <h2>Join Challenge</h2>
+      <div class="challenge-field">
+        <label>Enter Code</label>
+        <input type="text" id="challenge-code-input" class="challenge-code-input" maxlength="14" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      </div>
+      <p id="challenge-join-error" class="transfer-msg"></p>
+      <button id="join-challenge-btn" class="primary-btn">Join</button>
+    </div>
+
+    <button id="challenge-back-btn" class="secondary-btn">Back Home</button>
+  </section>
+
+  <!-- CHALLENGE WAIT SCREEN -->
+  <section id="challenge-wait">
+    <h1>Challenge Ready</h1>
+    <div id="challenge-config-summary" class="challenge-config-summary"></div>
+    <div class="challenge-code-display">
+      <span id="challenge-show-code">XXXX-XXXX-XXXX</span>
+      <button id="challenge-copy-code-btn" class="secondary-btn" style="padding:8px 16px;font-size:0.9rem;">Copy</button>
+    </div>
+    <div id="challenge-countdown" class="challenge-countdown">05:00</div>
+    <p class="subtitle">Game starts when timer hits zero</p>
+    <button id="challenge-cancel-btn" class="secondary-btn">Cancel</button>
   </section>
 
   <!-- PRACTICE SCREEN -->
@@ -198,6 +272,7 @@
     <div class="summary-buttons">
       <button id="restart-btn" class="primary-btn">Practice Again</button>
       <button id="home-btn" class="secondary-btn">Back Home</button>
+      <button id="share-score-btn" class="secondary-btn" style="display:none;">Share Score</button>
     </div>
   </section>
 
