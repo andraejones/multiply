@@ -116,11 +116,37 @@ h2 {
 }
 
 /* Player level */
+.player-level-widget {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
 .player-level {
   font-size: 1.2rem;
   font-weight: 900;
-  text-align: center;
   color: var(--primary);
+}
+
+.level-bar-wrap {
+  background: rgba(255,255,255,0.12);
+  border-radius: 6px;
+  height: 8px;
+  margin: 6px auto 4px;
+  max-width: 260px;
+  overflow: hidden;
+}
+
+.level-bar {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.next-level {
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.25);
 }
 
 /* Stat boxes */

@@ -7,11 +7,11 @@
   // --- Player Levels (space-themed) ---
   var LEVELS = [
     { min: 0,   title: 'Space Cadet',       badge: '\uD83E\uDDD1\u200D\uD83D\uDE80' },
-    { min: 10,  title: 'Star Pilot',         badge: '\u2708\uFE0F' },
-    { min: 25,  title: 'Asteroid Miner',     badge: '\u26CF\uFE0F' },
-    { min: 50,  title: 'Nebula Navigator',   badge: '\uD83D\uDE80' },
-    { min: 75,  title: 'Galaxy Explorer',    badge: '\uD83C\uDF00' },
-    { min: 90,  title: 'Star Commander',     badge: '\uD83C\uDF96\uFE0F' },
+    { min: 3,   title: 'Star Pilot',         badge: '\u2708\uFE0F' },
+    { min: 8,   title: 'Asteroid Miner',     badge: '\u26CF\uFE0F' },
+    { min: 18,  title: 'Nebula Navigator',   badge: '\uD83D\uDE80' },
+    { min: 35,  title: 'Galaxy Explorer',    badge: '\uD83C\uDF00' },
+    { min: 60,  title: 'Star Commander',     badge: '\uD83C\uDF96\uFE0F' },
     { min: 100, title: 'Universe Master',    badge: '\uD83C\uDF0C' },
   ];
 
@@ -192,21 +192,45 @@
     if (keys.length === 0) return 0;
     var gold = 0;
     for (var i = 0; i < keys.length; i++) {
-      if (data.facts[keys[i]].bestStreak >= 10) gold++;
+      if (data.facts[keys[i]].weight <= 2) gold++;
     }
     return Math.round((gold / keys.length) * 100);
   }
 
+  // Weighted mastery score: bronze(w<=4)=1, silver(w<=3)=2, gold(w<=2)=3
+  function getMasteryScore() {
+    var keys = Object.keys(data.facts);
+    if (keys.length === 0) return 0;
+    var points = 0;
+    for (var i = 0; i < keys.length; i++) {
+      var w = data.facts[keys[i]].weight;
+      if (w <= 2) points += 3;
+      else if (w <= 3) points += 2;
+      else if (w <= 4) points += 1;
+    }
+    return Math.round((points / (keys.length * 3)) * 100);
+  }
+
   function getPlayerLevel() {
-    var pct = getGoldPercent();
-    var level = LEVELS[0];
+    var pct = getMasteryScore();
+    var levelIndex = 0;
     for (var i = LEVELS.length - 1; i >= 0; i--) {
       if (pct >= LEVELS[i].min) {
-        level = LEVELS[i];
+        levelIndex = i;
         break;
       }
     }
-    return level;
+
+    // Decay: lose 1 level per 2 days inactive, never below Star Pilot (index 1)
+    if (data.lastPracticeDate) {
+      var today = new Date().toISOString().slice(0, 10);
+      var daysInactive = Math.floor((new Date(today + 'T00:00:00') - new Date(data.lastPracticeDate + 'T00:00:00')) / 86400000);
+      if (daysInactive >= 2) {
+        levelIndex = Math.max(1, levelIndex - Math.floor(daysInactive / 2));
+      }
+    }
+
+    return LEVELS[levelIndex];
   }
 
   // --- Celebration Overlay (reusable for mastery + level-up) ---
@@ -316,7 +340,7 @@
 
     if (value === correctAnswer) {
       input.value = '';
-      var oldBestStreak = fact.bestStreak;
+      var oldWeight = fact.weight;
       fact.correct++;
       fact.streak++;
       if (fact.streak > fact.bestStreak) fact.bestStreak = fact.streak;
@@ -340,8 +364,8 @@
 
       saveData();
 
-      // Check for gold mastery milestone
-      var justMastered = fact.bestStreak >= 10 && oldBestStreak < 10;
+      // Check for gold mastery milestone (weight dropped to 2 or below)
+      var justMastered = fact.weight <= 2 && oldWeight > 2;
 
       // Check for level-up
       var currentLevel = getPlayerLevel();
@@ -609,34 +633,31 @@
     }
     document.getElementById('summary-message').textContent = msg;
 
-    // Weak spots — top 5 by weight
+    // Weak spots — facts missed this round
     var list = document.getElementById('weak-list');
     list.innerHTML = '';
-    var sorted = Object.entries(data.facts)
-      .sort(function (a, b) { return b[1].weight - a[1].weight; })
-      .slice(0, 5);
-
     var weakSection = document.getElementById('weak-spots');
-    if (sorted.length > 0 && sorted[0][1].weight > 1) {
+
+    if (session.wrongFacts.length > 0) {
       weakSection.style.display = '';
-      sorted.forEach(function (entry) {
-        if (entry[1].weight <= 1) return;
-        var parts = entry[0].split('x');
+      for (var i = 0; i < session.wrongFacts.length; i++) {
+        var parts = session.wrongFacts[i].split('x');
         var li = document.createElement('li');
         li.textContent = parts[0] + ' \u00D7 ' + parts[1] + ' = ' + (parts[0] * parts[1]);
         list.appendChild(li);
-      });
+      }
     } else {
       weakSection.style.display = 'none';
+      fireConfetti({ particleCount: 100, spread: 80, colors: ['#34D399', '#FFD700', '#60A5FA'] });
     }
   }
 
   // --- Progress Grid ---
   function masteryLevel(fact) {
     if (!fact) return 'none';
-    if (fact.bestStreak >= 10) return 'gold';
-    if (fact.bestStreak >= 6) return 'silver';
-    if (fact.bestStreak >= 3) return 'bronze';
+    if (fact.weight <= 2) return 'gold';
+    if (fact.weight <= 3) return 'silver';
+    if (fact.weight <= 4) return 'bronze';
     return 'none';
   }
 
@@ -762,8 +783,32 @@
 
     // Player level
     var level = getPlayerLevel();
-    var goldPct = getGoldPercent();
-    document.getElementById('player-level').textContent = level.badge + ' ' + level.title + ' (' + goldPct + '% mastered)';
+    var masteryPct = getMasteryScore();
+    var levelIndex = LEVELS.indexOf(level);
+    var nextLevel = LEVELS[levelIndex + 1] || null;
+
+    document.getElementById('player-level').textContent = 'Current Level: ' + level.badge + ' ' + level.title;
+
+    // Progress bar: how far through current level toward next
+    var barPct = 0;
+    if (nextLevel) {
+      var rangeStart = level.min;
+      var rangeEnd = nextLevel.min;
+      barPct = Math.min(100, Math.round(((masteryPct - rangeStart) / (rangeEnd - rangeStart)) * 100));
+    } else {
+      barPct = 100; // Universe Master
+    }
+    document.getElementById('level-bar').style.width = barPct + '%';
+
+    // Next level (faded)
+    var nextEl = document.getElementById('next-level');
+    if (nextLevel) {
+      nextEl.textContent = 'Next Level: ' + nextLevel.badge + ' ' + nextLevel.title;
+      nextEl.style.display = '';
+    } else {
+      nextEl.style.display = 'none';
+    }
+
     if (!data.lastTitle) {
       data.lastTitle = level.title;
       saveData();
@@ -975,14 +1020,10 @@
 
   // End session early
   document.getElementById('end-btn').addEventListener('click', function () {
-    if (session.total > 0) {
-      endSession();
-    } else {
-      clearInterval(session.timerInterval);
-      session.timerSeconds = 0;
-      renderHome();
-      showScreen('home');
-    }
+    clearInterval(session.timerInterval);
+    session.timerSeconds = 0;
+    renderHome();
+    showScreen('home');
   });
 
   // Reset progress
