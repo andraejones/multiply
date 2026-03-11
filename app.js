@@ -1338,8 +1338,8 @@
   });
 
   // --- Challenge Event Listeners ---
-  var challengeStartMinutes = 5;
-  var challengeRoundMinutes = 3;
+  var challengeStartMinutes = 1;
+  var challengeRoundMinutes = 1;
   var challengeFactMask = 0xFFF;
 
   function startChallengeCountdown(config) {
@@ -1375,16 +1375,16 @@
   }
 
   document.getElementById('challenge-btn').addEventListener('click', function () {
-    challengeStartMinutes = 5;
-    challengeRoundMinutes = 3;
+    challengeStartMinutes = 1;
+    challengeRoundMinutes = 1;
     challengeFactMask = 0xFFF;
-    document.getElementById('challenge-start-val').textContent = '5';
+    document.getElementById('challenge-start-val').textContent = '1';
     document.getElementById('challenge-code-input').value = '';
     document.getElementById('challenge-join-error').textContent = '';
     // Reset round buttons
     var rBtns = document.querySelectorAll('#challenge-round-buttons button');
     for (var i = 0; i < rBtns.length; i++) {
-      rBtns[i].classList.toggle('selected', parseInt(rBtns[i].dataset.minutes, 10) === 3);
+      rBtns[i].classList.toggle('selected', parseInt(rBtns[i].dataset.minutes, 10) === 1);
     }
     // Reset fact toggles
     var fBtns = document.querySelectorAll('.fact-toggle');
@@ -1452,7 +1452,7 @@
       alert('Select at least one fact group.');
       return;
     }
-    var startTime = Math.floor((Date.now() + challengeStartMinutes * 60000) / 60000) * 60000;
+    var startTime = Date.now() + challengeStartMinutes * 60000;
     var seed = Math.floor(Math.random() * (1 << 20));
     var config = {
       startTime: startTime,
