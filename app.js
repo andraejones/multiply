@@ -484,10 +484,17 @@
     document.getElementById('session-score').textContent = session.correct + ' correct';
     saveData();
 
-    session.waitingForRetype = true;
-    session.requiredRetype = correctAnswer;
-    input.value = '';
-    input.placeholder = String(correctAnswer);
+    if (session.challengeMode) {
+      input.value = '';
+      setTimeout(function () {
+        if (session.timerSeconds > 0) nextProblem();
+      }, 800);
+    } else {
+      session.waitingForRetype = true;
+      session.requiredRetype = correctAnswer;
+      input.value = '';
+      input.placeholder = String(correctAnswer);
+    }
   }
 
   // --- Submit ---
@@ -571,38 +578,45 @@
         saveData();
       }
 
-      // Queue celebrations (mastery first, then level-up, then streak)
-      if (justMastered) {
-        queueCelebration(
-          '\uD83C\uDFC6',
-          parts[0] + ' \u00D7 ' + parts[1] + ' Mastered!',
-          { particleCount: 80, spread: 70, colors: ['#34D399', '#FFD700'] }
-        );
-      }
-
-      if (leveledUp) {
-        queueCelebration(
-          currentLevel.badge,
-          currentLevel.title + '!',
-          { particleCount: 120, spread: 100, startVelocity: 35 }
-        );
-      }
-
-      if (isNewBestStreak) {
-        var streakPick = streakMessages[Math.floor(Math.random() * streakMessages.length)];
-        queueCelebration(
-          streakPick.emoji,
-          session.bestStreak + ' in a row! ' + streakPick.msg,
-          session.bestStreak >= 10 ? { particleCount: 60, spread: 55 } : null
-        );
-      } else if (!justMastered && !leveledUp && !isNewBestStreak) {
+      // In challenge mode, skip celebrations and advance immediately
+      if (session.challengeMode) {
         setTimeout(function () {
-          if (!celebrationShowing && (session.timerSeconds > 0 || session.paused)) {
-            nextProblem();
-          }
+          if (session.timerSeconds > 0) nextProblem();
         }, 400);
+      } else {
+        // Queue celebrations (mastery first, then level-up, then streak)
+        if (justMastered) {
+          queueCelebration(
+            '\uD83C\uDFC6',
+            parts[0] + ' \u00D7 ' + parts[1] + ' Mastered!',
+            { particleCount: 80, spread: 70, colors: ['#34D399', '#FFD700'] }
+          );
+        }
+
+        if (leveledUp) {
+          queueCelebration(
+            currentLevel.badge,
+            currentLevel.title + '!',
+            { particleCount: 120, spread: 100, startVelocity: 35 }
+          );
+        }
+
+        if (isNewBestStreak) {
+          var streakPick = streakMessages[Math.floor(Math.random() * streakMessages.length)];
+          queueCelebration(
+            streakPick.emoji,
+            session.bestStreak + ' in a row! ' + streakPick.msg,
+            session.bestStreak >= 10 ? { particleCount: 60, spread: 55 } : null
+          );
+        } else if (!justMastered && !leveledUp && !isNewBestStreak) {
+          setTimeout(function () {
+            if (!celebrationShowing && (session.timerSeconds > 0 || session.paused)) {
+              nextProblem();
+            }
+          }, 400);
+        }
+        // If mastery/level celebrations queued, showNextCelebration handles advancing
       }
-      // If mastery/level celebrations queued, showNextCelebration handles advancing
     } else {
       fact.weight += 3;
       fact.streak = 0;
@@ -622,11 +636,19 @@
 
       saveData();
 
-      // Retype mode: child must type the correct answer
-      session.waitingForRetype = true;
-      session.requiredRetype = correctAnswer;
-      input.value = '';
-      input.placeholder = String(correctAnswer);
+      if (session.challengeMode) {
+        // Challenge mode: show correct answer briefly, auto-advance
+        input.value = '';
+        setTimeout(function () {
+          if (session.timerSeconds > 0) nextProblem();
+        }, 800);
+      } else {
+        // Retype mode: child must type the correct answer
+        session.waitingForRetype = true;
+        session.requiredRetype = correctAnswer;
+        input.value = '';
+        input.placeholder = String(correctAnswer);
+      }
     }
   }
 
@@ -654,7 +676,8 @@
   function startTimer() {
     updateTimerDisplay();
     session.timerInterval = setInterval(function () {
-      if (session.paused || session.waitingForRetype) return;
+      if (session.paused) return;
+      if (session.waitingForRetype && !session.challengeMode) return;
       session.timerSeconds--;
       updateTimerDisplay();
       if (session.timerSeconds <= 0) {
