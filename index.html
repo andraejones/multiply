@@ -49,7 +49,8 @@
       </div>
     </div>
 
-    <button id="start-btn" class="primary-btn">Start Practice</button>
+    <button id="start-btn" class="primary-btn">Start Game</button>
+    <button id="practice-mode-btn" class="secondary-btn">Practice</button>
 
     <div class="home-nav-row">
       <button id="history-btn" class="secondary-btn">History</button>
@@ -113,6 +114,44 @@
       </div>
       <button id="reset-btn" class="danger-btn">Reset All Progress</button>
     </div>
+  </section>
+
+  <!-- PRACTICE CONFIG SCREEN -->
+  <section id="practice-config">
+    <h1>Practice</h1>
+
+    <div class="challenge-panel">
+      <h2>Practice Time</h2>
+      <div class="timer-buttons" id="practice-timer-buttons">
+        <button data-minutes="1">1 min</button>
+        <button data-minutes="2">2 min</button>
+        <button data-minutes="3">3 min</button>
+        <button data-minutes="4">4 min</button>
+        <button data-minutes="5" class="selected">5 min</button>
+      </div>
+    </div>
+
+    <div class="challenge-panel">
+      <h2>Facts to Practice</h2>
+      <div class="fact-toggles" id="practice-fact-toggles">
+        <button class="fact-toggle selected" data-fact="all">All</button>
+        <button class="fact-toggle selected" data-fact="1">1</button>
+        <button class="fact-toggle selected" data-fact="2">2</button>
+        <button class="fact-toggle selected" data-fact="3">3</button>
+        <button class="fact-toggle selected" data-fact="4">4</button>
+        <button class="fact-toggle selected" data-fact="5">5</button>
+        <button class="fact-toggle selected" data-fact="6">6</button>
+        <button class="fact-toggle selected" data-fact="7">7</button>
+        <button class="fact-toggle selected" data-fact="8">8</button>
+        <button class="fact-toggle selected" data-fact="9">9</button>
+        <button class="fact-toggle selected" data-fact="10">10</button>
+        <button class="fact-toggle selected" data-fact="11">11</button>
+        <button class="fact-toggle selected" data-fact="12">12</button>
+      </div>
+    </div>
+
+    <button id="practice-start-btn" class="primary-btn">Start Practice</button>
+    <button id="practice-back-btn" class="secondary-btn">Back Home</button>
   </section>
 
   <!-- HISTORY SCREEN -->

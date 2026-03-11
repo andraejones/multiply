@@ -167,6 +167,8 @@
     challengeSequence: [],
     challengeIndex: 0,
     challengeCountdownInterval: null,
+    sandboxMode: false,
+    sandboxFactKeys: null,
   };
 
   // --- Defaults ---
@@ -276,7 +278,7 @@
 
   // --- Weighted Random Pick ---
   function pickNextFact() {
-    var keys = Object.keys(data.facts);
+    var keys = session.sandboxFactKeys ? session.sandboxFactKeys : Object.keys(data.facts);
     var totalWeight = 0;
     for (var i = 0; i < keys.length; i++) {
       totalWeight += data.facts[keys[i]].weight;
@@ -467,9 +469,11 @@
     var input = document.getElementById('answer-input');
     var fb = document.getElementById('feedback');
 
-    fact.weight += 3;
-    fact.attempts++;
-    fact.streak = 0;
+    if (!session.sandboxMode) {
+      fact.weight += 3;
+      fact.attempts++;
+      fact.streak = 0;
+    }
     session.streak = 0;
     session.streakCelebrated = false;
     session.total++;
@@ -482,7 +486,7 @@
     document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
     document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
     document.getElementById('session-score').textContent = session.correct + ' correct';
-    saveData();
+    if (!session.sandboxMode) saveData();
 
     if (session.challengeMode) {
       input.value = '';
@@ -537,20 +541,19 @@
     var fact = data.facts[key];
     var fb = document.getElementById('feedback');
 
-    fact.attempts++;
+    if (!session.sandboxMode) fact.attempts++;
     session.total++;
 
     if (value === correctAnswer) {
       input.value = '';
       var oldWeight = getEffectiveWeight(fact);
-      fact.correct++;
-      fact.streak++;
-      if (fact.streak > fact.bestStreak) fact.bestStreak = fact.streak;
-
-      if (elapsed <= FAST_THRESHOLD) {
-        fact.weight = Math.max(1, fact.weight - 1);
+      if (!session.sandboxMode) {
+        fact.correct++;
+        fact.streak++;
+        if (fact.streak > fact.bestStreak) fact.bestStreak = fact.streak;
+        if (elapsed <= FAST_THRESHOLD) fact.weight = Math.max(1, fact.weight - 1);
+        fact.lastCorrect = Date.now();
       }
-      fact.lastCorrect = Date.now();
 
       session.correct++;
       session.streak++;
@@ -565,15 +568,15 @@
       document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
       document.getElementById('session-score').textContent = session.correct + ' correct';
 
-      saveData();
+      if (!session.sandboxMode) saveData();
 
       // Check for gold mastery milestone (weight dropped to 2 or below)
-      var justMastered = fact.weight <= 2 && oldWeight > 2;
+      var justMastered = !session.sandboxMode && fact.weight <= 2 && oldWeight > 2;
 
       // Check for level-up
       var currentLevel = getPlayerLevel();
-      var leveledUp = data.lastTitle && currentLevel.title !== data.lastTitle && LEVELS.indexOf(currentLevel) > LEVELS.indexOf(LEVELS.find(function (l) { return l.title === data.lastTitle; }) || LEVELS[0]);
-      if (currentLevel.title !== data.lastTitle) {
+      var leveledUp = !session.sandboxMode && data.lastTitle && currentLevel.title !== data.lastTitle && LEVELS.indexOf(currentLevel) > LEVELS.indexOf(LEVELS.find(function (l) { return l.title === data.lastTitle; }) || LEVELS[0]);
+      if (!session.sandboxMode && currentLevel.title !== data.lastTitle) {
         data.lastTitle = currentLevel.title;
         saveData();
       }
@@ -618,8 +621,10 @@
         // If mastery/level celebrations queued, showNextCelebration handles advancing
       }
     } else {
-      fact.weight += 3;
-      fact.streak = 0;
+      if (!session.sandboxMode) {
+        fact.weight += 3;
+        fact.streak = 0;
+      }
       session.streak = 0;
       session.streakCelebrated = false;
 
@@ -634,7 +639,7 @@
       document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
       document.getElementById('session-score').textContent = session.correct + ' correct';
 
-      saveData();
+      if (!session.sandboxMode) saveData();
 
       if (session.challengeMode) {
         // Challenge mode: show correct answer briefly, auto-advance
@@ -698,6 +703,8 @@
     session.challengeConfig = null;
     session.challengeSequence = [];
     session.challengeIndex = 0;
+    session.sandboxMode = false;
+    session.sandboxFactKeys = null;
     session.correct = 0;
     session.total = 0;
     session.streak = 0;
@@ -767,6 +774,51 @@
     nextProblem();
   }
 
+  function startSandboxSession(factMask, timerMinutes) {
+    var keys = [];
+    for (var a = 1; a <= 12; a++) {
+      for (var b = 1; b <= 12; b++) {
+        if ((factMask & (1 << (a - 1))) || (factMask & (1 << (b - 1)))) {
+          keys.push(a + 'x' + b);
+        }
+      }
+    }
+    session.challengeMode = false;
+    session.challengeConfig = null;
+    session.challengeSequence = [];
+    session.challengeIndex = 0;
+    session.sandboxMode = true;
+    session.sandboxFactKeys = keys;
+    session.correct = 0;
+    session.total = 0;
+    session.streak = 0;
+    session.bestStreak = 0;
+    session.previousFact = null;
+    session.currentFact = null;
+    session.paused = false;
+    session.wrongFacts = [];
+    session.waitingForRetype = false;
+    session.requiredRetype = null;
+    session.streakCelebrated = false;
+    session.totalTime = 0;
+    session.timerSeconds = timerMinutes * 60;
+    clearInterval(session.questionTimerInterval);
+    session.questionTimeLeft = 0;
+    celebrationQueue = [];
+    celebrationShowing = false;
+    document.getElementById('celebration-overlay').style.display = 'none';
+    document.getElementById('streak-overlay').style.display = 'none';
+    generateStars();
+
+    document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
+    document.getElementById('best-streak-display').textContent = 'Best: 0';
+    document.getElementById('session-score').textContent = '0 correct';
+
+    showScreen('practice');
+    startTimer();
+    nextProblem();
+  }
+
   function endSession() {
     clearInterval(session.timerInterval);
     clearInterval(session.questionTimerInterval);
@@ -777,47 +829,58 @@
     var elapsedMinutes = data.settings.timerMinutes - (session.timerSeconds / 60);
     session.timerSeconds = 0;
 
-    // Update history
-    var today = new Date().toISOString().slice(0, 10);
-    if (!data.history[today]) {
-      data.history[today] = { correct: 0, total: 0 };
-    }
-    data.history[today].correct += session.correct;
-    data.history[today].total += session.total;
-
-    // Daily streak
-    if (data.lastPracticeDate) {
-      var last = new Date(data.lastPracticeDate + 'T00:00:00');
-      var now = new Date(today + 'T00:00:00');
-      var diffDays = Math.round((now - last) / 86400000);
-      if (diffDays === 1) {
-        data.dailyStreak++;
-      } else if (diffDays > 1) {
-        data.dailyStreak = 1;
-      }
-    } else {
-      data.dailyStreak = 1;
-    }
-    data.lastPracticeDate = today;
-
-    // Personal best (correct per minute)
     var rate = elapsedMinutes > 0 ? Math.round((session.correct / elapsedMinutes) * 10) / 10 : 0;
     session.rate = rate;
-    session.isNewBest = rate > data.personalBest;
-    if (session.isNewBest) {
-      data.personalBest = rate;
-    }
+    session.isNewBest = false;
 
-    // Save last round stats
-    var avgSpeed = session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
-    data.lastRound = {
-      correct: session.correct,
-      total: session.total,
-      accuracy: session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0,
-      speed: avgSpeed,
-      rate: rate,
-      bestStreak: session.bestStreak,
-    };
+    if (!session.sandboxMode) {
+      // Update history
+      var today = new Date().toISOString().slice(0, 10);
+      if (!data.history[today]) {
+        data.history[today] = { correct: 0, total: 0 };
+      }
+      data.history[today].correct += session.correct;
+      data.history[today].total += session.total;
+
+      // Daily streak
+      if (data.lastPracticeDate) {
+        var last = new Date(data.lastPracticeDate + 'T00:00:00');
+        var now = new Date(today + 'T00:00:00');
+        var diffDays = Math.round((now - last) / 86400000);
+        if (diffDays === 1) {
+          data.dailyStreak++;
+        } else if (diffDays > 1) {
+          data.dailyStreak = 1;
+        }
+      } else {
+        data.dailyStreak = 1;
+      }
+      data.lastPracticeDate = today;
+
+      // Personal best (correct per minute)
+      if (rate > data.personalBest) {
+        data.personalBest = rate;
+        session.isNewBest = true;
+      }
+
+      // Save last round stats
+      var avgSpeed = session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
+      data.lastRound = {
+        correct: session.correct,
+        total: session.total,
+        accuracy: session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0,
+        speed: avgSpeed,
+        rate: rate,
+        bestStreak: session.bestStreak,
+      };
+
+      // Restore timer setting if overridden by challenge
+      if (session.challengeMode && session._origTimerMinutes !== undefined) {
+        data.settings.timerMinutes = session._origTimerMinutes;
+      }
+
+      saveData();
+    }
 
     // Show/hide share button based on challenge mode
     var shareBtn = document.getElementById('share-score-btn');
@@ -825,12 +888,6 @@
       shareBtn.style.display = session.challengeMode ? '' : 'none';
     }
 
-    // Restore timer setting if overridden by challenge
-    if (session.challengeMode && session._origTimerMinutes !== undefined) {
-      data.settings.timerMinutes = session._origTimerMinutes;
-    }
-
-    saveData();
     renderSummary();
     showScreen('summary');
   }
@@ -1257,6 +1314,7 @@
       data.settings.timerMinutes = session._origTimerMinutes;
     }
     session.challengeMode = false;
+    session.sandboxMode = false;
     renderHome();
     showScreen('home');
   });
@@ -1319,7 +1377,11 @@
   });
 
   document.getElementById('restart-btn').addEventListener('click', function () {
-    startSession();
+    if (session.sandboxMode) {
+      showScreen('practice-config');
+    } else {
+      startSession();
+    }
   });
 
   document.getElementById('home-btn').addEventListener('click', function () {
@@ -1387,7 +1449,7 @@
       rBtns[i].classList.toggle('selected', parseInt(rBtns[i].dataset.minutes, 10) === 1);
     }
     // Reset fact toggles
-    var fBtns = document.querySelectorAll('.fact-toggle');
+    var fBtns = document.querySelectorAll('#fact-toggles .fact-toggle');
     for (var i = 0; i < fBtns.length; i++) {
       fBtns[i].classList.add('selected');
     }
@@ -1422,15 +1484,15 @@
 
     if (btn.dataset.fact === 'all') {
       var allSelected = btn.classList.contains('selected');
-      var toggles = document.querySelectorAll('.fact-toggle');
+      var toggles = document.querySelectorAll('#fact-toggles .fact-toggle');
       for (var i = 0; i < toggles.length; i++) {
         if (allSelected) toggles[i].classList.remove('selected');
         else toggles[i].classList.add('selected');
       }
     } else {
       btn.classList.toggle('selected');
-      var allBtn = document.querySelector('.fact-toggle[data-fact="all"]');
-      var numBtns = document.querySelectorAll('.fact-toggle:not([data-fact="all"])');
+      var allBtn = document.querySelector('#fact-toggles .fact-toggle[data-fact="all"]');
+      var numBtns = document.querySelectorAll('#fact-toggles .fact-toggle:not([data-fact="all"])');
       var allOn = true;
       for (var i = 0; i < numBtns.length; i++) {
         if (!numBtns[i].classList.contains('selected')) { allOn = false; break; }
@@ -1439,7 +1501,7 @@
     }
 
     challengeFactMask = 0;
-    var numBtns = document.querySelectorAll('.fact-toggle:not([data-fact="all"])');
+    var numBtns = document.querySelectorAll('#fact-toggles .fact-toggle:not([data-fact="all"])');
     for (var i = 0; i < numBtns.length; i++) {
       if (numBtns[i].classList.contains('selected')) {
         challengeFactMask |= (1 << (parseInt(numBtns[i].dataset.fact, 10) - 1));
@@ -1556,6 +1618,67 @@
       container.appendChild(s);
     }
   }
+
+  // --- Practice Mode Listeners ---
+  var practiceTimerMinutes = 5;
+  var practiceFactMask = 0xFFF;
+
+  document.getElementById('practice-mode-btn').addEventListener('click', function () {
+    practiceTimerMinutes = 5;
+    practiceFactMask = 0xFFF;
+    var tBtns = document.querySelectorAll('#practice-timer-buttons button');
+    for (var i = 0; i < tBtns.length; i++) {
+      tBtns[i].classList.toggle('selected', parseInt(tBtns[i].dataset.minutes, 10) === 5);
+    }
+    var fBtns = document.querySelectorAll('#practice-fact-toggles .fact-toggle');
+    for (var i = 0; i < fBtns.length; i++) {
+      fBtns[i].classList.add('selected');
+    }
+    showScreen('practice-config');
+  });
+
+  document.getElementById('practice-back-btn').addEventListener('click', function () {
+    renderHome();
+    showScreen('home');
+  });
+
+  document.getElementById('practice-timer-buttons').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-minutes]');
+    if (!btn) return;
+    practiceTimerMinutes = parseInt(btn.dataset.minutes, 10);
+    var btns = document.querySelectorAll('#practice-timer-buttons button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('selected', btns[i] === btn);
+    }
+  });
+
+  document.getElementById('practice-fact-toggles').addEventListener('click', function (e) {
+    var btn = e.target.closest('.fact-toggle');
+    if (!btn) return;
+    var fact = btn.dataset.fact;
+    var fBtns = document.querySelectorAll('#practice-fact-toggles .fact-toggle');
+    if (fact === 'all') {
+      var allSelected = (practiceFactMask === 0xFFF);
+      practiceFactMask = allSelected ? 0 : 0xFFF;
+      for (var i = 0; i < fBtns.length; i++) {
+        fBtns[i].classList.toggle('selected', !allSelected);
+      }
+    } else {
+      var bit = 1 << (parseInt(fact, 10) - 1);
+      practiceFactMask ^= bit;
+      btn.classList.toggle('selected', !!(practiceFactMask & bit));
+      var allBtn = document.querySelector('#practice-fact-toggles .fact-toggle[data-fact="all"]');
+      allBtn.classList.toggle('selected', practiceFactMask === 0xFFF);
+    }
+  });
+
+  document.getElementById('practice-start-btn').addEventListener('click', function () {
+    if (practiceFactMask === 0) {
+      alert('Select at least one fact group.');
+      return;
+    }
+    startSandboxSession(practiceFactMask, practiceTimerMinutes);
+  });
 
   // --- Init ---
   function init() {
