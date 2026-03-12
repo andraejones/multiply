@@ -2,7 +2,7 @@
   'use strict';
 
   var STORAGE_KEY = 'multiply-trainer';
-  var FAST_THRESHOLD = 5000; // ms
+  var FAST_THRESHOLD = 8000; // ms
 
   // --- Challenge Mode ---
   var CHALLENGE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -472,7 +472,7 @@
     var fb = document.getElementById('feedback');
 
     if (!session.sandboxMode) {
-      fact.weight += 3;
+      fact.weight += 1;
       fact.attempts++;
       fact.streak = 0;
     }
@@ -624,7 +624,7 @@
       }
     } else {
       if (!session.sandboxMode) {
-        fact.weight += 3;
+        fact.weight += 1;
         fact.streak = 0;
       }
       session.streak = 0;
