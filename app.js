@@ -281,13 +281,15 @@
     var keys = session.sandboxFactKeys ? session.sandboxFactKeys : Object.keys(data.facts);
     var totalWeight = 0;
     for (var i = 0; i < keys.length; i++) {
-      totalWeight += data.facts[keys[i]].weight;
+      var w = data.facts[keys[i]].weight;
+      totalWeight += w * w;
     }
 
     for (var attempt = 0; attempt < 4; attempt++) {
       var rand = Math.random() * totalWeight;
       for (var i = 0; i < keys.length; i++) {
-        rand -= data.facts[keys[i]].weight;
+        var w = data.facts[keys[i]].weight;
+        rand -= w * w;
         if (rand <= 0) {
           if (attempt < 3 && keys[i] === session.previousFact) {
             break; // re-pick
