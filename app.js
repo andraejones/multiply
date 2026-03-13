@@ -387,6 +387,11 @@
   };
 
   // --- Defaults ---
+  function todayLocal() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
   function defaults() {
     return {
       facts: {},
@@ -604,7 +609,7 @@
 
     // Decay: lose 1 level per 2 days inactive, never below Star Pilot (index 1)
     if (data.lastPracticeDate) {
-      var today = new Date().toISOString().slice(0, 10);
+      var today = todayLocal();
       var daysInactive = Math.floor((new Date(today + 'T00:00:00') - new Date(data.lastPracticeDate + 'T00:00:00')) / 86400000);
       if (daysInactive >= 2) {
         levelIndex = Math.max(1, levelIndex - Math.floor(daysInactive / 2));
@@ -1086,7 +1091,7 @@
 
     if (!session.sandboxMode) {
       // Update history
-      var today = new Date().toISOString().slice(0, 10);
+      var today = todayLocal();
       if (!data.history[today]) {
         data.history[today] = { correct: 0, total: 0 };
       }
