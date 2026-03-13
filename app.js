@@ -6,6 +6,52 @@
     return Math.min(10000, Math.max(3000, 3000 + (weight - 2) * 2500));
   }
 
+  // --- Sound Effects ---
+  var audioCtx = null;
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
+  function playTone(freq, duration, type) {
+    if (data && data.settings && data.settings.muted) return;
+    try {
+      var ctx = getAudioCtx();
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.value = freq;
+      gain.gain.value = 0.15;
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) {}
+  }
+
+  function playCorrectSound() {
+    playTone(523, 0.12, 'sine');
+    setTimeout(function () { playTone(659, 0.15, 'sine'); }, 80);
+  }
+
+  function playWrongSound() {
+    playTone(200, 0.25, 'triangle');
+  }
+
+  function playMasterySound() {
+    playTone(523, 0.1, 'sine');
+    setTimeout(function () { playTone(659, 0.1, 'sine'); }, 100);
+    setTimeout(function () { playTone(784, 0.1, 'sine'); }, 200);
+    setTimeout(function () { playTone(1047, 0.25, 'sine'); }, 300);
+  }
+
+  function playStreakSound() {
+    playTone(440, 0.1, 'sine');
+    setTimeout(function () { playTone(554, 0.1, 'sine'); }, 100);
+    setTimeout(function () { playTone(659, 0.2, 'sine'); }, 200);
+  }
+
   // --- Challenge Mode ---
   var CHALLENGE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
   var CHALLENGE_EPOCH = Date.UTC(2025, 0, 1);
@@ -177,7 +223,7 @@
   function defaults() {
     return {
       facts: {},
-      settings: { timerMinutes: 5 },
+      settings: { timerMinutes: 5, muted: false },
       history: {},
       dailyStreak: 0,
       lastPracticeDate: null,
@@ -195,7 +241,7 @@
         var base = defaults();
         data = {
           facts: parsed.facts || {},
-          settings: { timerMinutes: (parsed.settings && parsed.settings.timerMinutes) || base.settings.timerMinutes },
+          settings: { timerMinutes: (parsed.settings && parsed.settings.timerMinutes) || base.settings.timerMinutes, muted: (parsed.settings && parsed.settings.muted) || false },
           history: parsed.history || {},
           dailyStreak: parsed.dailyStreak || 0,
           lastPracticeDate: parsed.lastPracticeDate || null,
@@ -487,6 +533,7 @@
 
     fb.textContent = correctAnswer + '  \u2014 ' + parts[0] + ' \u00D7 ' + parts[1] + ' = ' + correctAnswer;
     fb.className = 'feedback wrong';
+    playWrongSound();
     document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
     document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
     document.getElementById('session-score').textContent = session.correct + ' correct';
@@ -567,6 +614,7 @@
 
       fb.textContent = getCorrectMessage();
       fb.className = 'feedback correct';
+      playCorrectSound();
 
       document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
       document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
@@ -593,6 +641,7 @@
       } else {
         // Queue celebrations (mastery first, then level-up, then streak)
         if (justMastered) {
+          playMasterySound();
           queueCelebration(
             '\uD83C\uDFC6',
             parts[0] + ' \u00D7 ' + parts[1] + ' Mastered!',
@@ -609,6 +658,7 @@
         }
 
         if (isNewBestStreak) {
+          playStreakSound();
           var streakPick = streakMessages[Math.floor(Math.random() * streakMessages.length)];
           queueCelebration(
             streakPick.emoji,
@@ -638,6 +688,7 @@
 
       fb.textContent = correctAnswer + '  \u2014 ' + parts[0] + ' \u00D7 ' + parts[1] + ' = ' + correctAnswer;
       fb.className = 'feedback wrong';
+      playWrongSound();
 
       document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
       document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
@@ -1063,6 +1114,7 @@
   function renderHome() {
     document.getElementById('daily-streak').textContent = data.dailyStreak + ' \uD83D\uDD25';
     document.getElementById('personal-best').textContent = data.personalBest + '/min \u2B50';
+    updateMuteBtn();
     renderProgressGrid();
 
     // Player level
@@ -1254,6 +1306,15 @@
   }
 
   // --- Event Listeners ---
+  function updateMuteBtn() {
+    document.getElementById('mute-btn').textContent = data.settings.muted ? '🔇' : '🔊';
+  }
+  document.getElementById('mute-btn').addEventListener('click', function () {
+    data.settings.muted = !data.settings.muted;
+    updateMuteBtn();
+    saveData();
+  });
+
   document.getElementById('start-btn').addEventListener('click', startSession);
 
   document.getElementById('last-round-btn').addEventListener('click', function () {
