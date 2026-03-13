@@ -2,7 +2,9 @@
   'use strict';
 
   var STORAGE_KEY = 'multiply-trainer';
-  var FAST_THRESHOLD = 8000; // ms
+  function getFastThreshold(weight) {
+    return Math.min(10000, Math.max(3000, 3000 + (weight - 2) * 2500));
+  }
 
   // --- Challenge Mode ---
   var CHALLENGE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -553,7 +555,7 @@
         fact.correct++;
         fact.streak++;
         if (fact.streak > fact.bestStreak) fact.bestStreak = fact.streak;
-        if (elapsed <= FAST_THRESHOLD) fact.weight = Math.max(1, fact.weight - 1);
+        if (elapsed <= getFastThreshold(fact.weight)) fact.weight = Math.max(1, fact.weight - 1);
         fact.lastCorrect = Date.now();
       }
 
