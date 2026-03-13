@@ -17,11 +17,12 @@
     if (data && data.settings && data.settings.muted) return;
     try {
       var ctx = getAudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
       var osc = ctx.createOscillator();
       var gain = ctx.createGain();
       osc.type = type || 'sine';
       osc.frequency.value = freq;
-      gain.gain.value = 0.15;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -329,14 +330,14 @@
     var keys = session.sandboxFactKeys ? session.sandboxFactKeys : Object.keys(data.facts);
     var totalWeight = 0;
     for (var i = 0; i < keys.length; i++) {
-      var w = data.facts[keys[i]].weight;
+      var w = Math.max(1, data.facts[keys[i]].weight);
       totalWeight += w * w;
     }
 
     for (var attempt = 0; attempt < 4; attempt++) {
       var rand = Math.random() * totalWeight;
       for (var i = 0; i < keys.length; i++) {
-        var w = data.facts[keys[i]].weight;
+        var w = Math.max(1, data.facts[keys[i]].weight);
         rand -= w * w;
         if (rand <= 0) {
           if (attempt < 3 && keys[i] === session.previousFact) {
@@ -520,7 +521,7 @@
     var fb = document.getElementById('feedback');
 
     if (!session.sandboxMode) {
-      fact.weight += 1;
+      fact.weight = Math.min(31, fact.weight + 1);
       fact.attempts++;
       fact.streak = 0;
     }
@@ -549,7 +550,34 @@
       session.requiredRetype = correctAnswer;
       input.value = '';
       input.placeholder = String(correctAnswer);
+      startRetypeTimer();
     }
+  }
+
+  function startRetypeTimer() {
+    session.questionTimeLeft = 10000;
+    clearInterval(session.questionTimerInterval);
+    var qWrap = document.getElementById('question-timer-wrap');
+    var qBar = document.getElementById('question-timer-bar');
+    qWrap.style.display = 'none';
+    qBar.style.width = '100%';
+    session.questionTimerInterval = setInterval(function () {
+      if (session.paused) return;
+      session.questionTimeLeft -= 100;
+      if (session.questionTimeLeft <= 3000) {
+        qWrap.style.display = '';
+        qBar.style.width = Math.max(0, (session.questionTimeLeft / 3000) * 100) + '%';
+      }
+      if (session.questionTimeLeft <= 0) {
+        clearInterval(session.questionTimerInterval);
+        qWrap.style.display = 'none';
+        session.waitingForRetype = false;
+        session.requiredRetype = null;
+        document.getElementById('answer-input').value = '';
+        document.getElementById('answer-input').placeholder = '?';
+        if (session.timerSeconds > 0) nextProblem();
+      }
+    }, 100);
   }
 
   // --- Submit ---
@@ -676,7 +704,7 @@
       }
     } else {
       if (!session.sandboxMode) {
-        fact.weight += 1;
+        fact.weight = Math.min(31, fact.weight + 1);
         fact.streak = 0;
       }
       session.streak = 0;
@@ -708,6 +736,7 @@
         session.requiredRetype = correctAnswer;
         input.value = '';
         input.placeholder = String(correctAnswer);
+        startRetypeTimer();
       }
     }
   }
@@ -737,7 +766,6 @@
     updateTimerDisplay();
     session.timerInterval = setInterval(function () {
       if (session.paused) return;
-      if (session.waitingForRetype && !session.challengeMode) return;
       session.timerSeconds--;
       updateTimerDisplay();
       if (session.timerSeconds <= 0) {
@@ -876,6 +904,7 @@
 
   function endSession() {
     clearInterval(session.timerInterval);
+    session.timerInterval = null;
     clearInterval(session.questionTimerInterval);
     session.questionTimeLeft = 0;
     document.getElementById('question-timer-wrap').style.display = 'none';
@@ -1365,23 +1394,13 @@
 
   // End session early
   document.getElementById('end-btn').addEventListener('click', function () {
-    clearInterval(session.timerInterval);
-    clearInterval(session.questionTimerInterval);
     clearInterval(session.challengeCountdownInterval);
-    document.getElementById('question-timer-wrap').style.display = 'none';
     document.getElementById('celebration-overlay').style.display = 'none';
     document.getElementById('streak-overlay').style.display = 'none';
     celebrationQueue = [];
     celebrationShowing = false;
     session.paused = false;
-    session.timerSeconds = 0;
-    if (session.challengeMode && session._origTimerMinutes !== undefined) {
-      data.settings.timerMinutes = session._origTimerMinutes;
-    }
-    session.challengeMode = false;
-    session.sandboxMode = false;
-    renderHome();
-    showScreen('home');
+    endSession();
   });
 
   // Reset progress
@@ -1609,6 +1628,8 @@
 
     errorEl.textContent = '';
     if (config.startTime <= Date.now()) {
+      var lateSeconds = Math.floor((Date.now() - config.startTime) / 1000);
+      config.roundMinutes = Math.max(10, config.roundMinutes * 60 - lateSeconds) / 60;
       startChallengeSession(config);
     } else {
       startChallengeCountdown(config);
