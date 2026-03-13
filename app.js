@@ -1152,7 +1152,7 @@
     var levelIndex = LEVELS.indexOf(level);
     var nextLevel = LEVELS[levelIndex + 1] || null;
 
-    document.getElementById('player-level').textContent = 'Current Level: ' + level.badge + ' ' + level.title;
+    document.getElementById('player-level').textContent = 'Current Rank: ' + level.badge + ' ' + level.title;
 
     // Progress bar: how far through current level toward next
     var barPct = 0;
@@ -1168,7 +1168,7 @@
     // Next level (faded)
     var nextEl = document.getElementById('next-level');
     if (nextLevel) {
-      nextEl.textContent = 'Next Level: ' + nextLevel.badge + ' ' + nextLevel.title;
+      nextEl.textContent = 'Next Rank: ' + nextLevel.badge + ' ' + nextLevel.title;
       nextEl.style.display = '';
     } else {
       nextEl.style.display = 'none';
