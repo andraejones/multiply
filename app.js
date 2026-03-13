@@ -53,6 +53,172 @@
     setTimeout(function () { playTone(659, 0.2, 'sine'); }, 200);
   }
 
+  // --- Background Music ---
+  var bgMusic = { current: null, nodes: null, fadeInterval: null };
+
+  function startAmbientMusic() {
+    if (bgMusic.current === 'ambient') return;
+    stopBgMusic(function () {
+      try {
+        var ctx = getAudioCtx();
+        if (ctx.state === 'suspended') ctx.resume();
+        var master = ctx.createGain();
+        master.gain.setValueAtTime(0, ctx.currentTime);
+        master.connect(ctx.destination);
+
+        // Low drone pad
+        var drone = ctx.createOscillator();
+        var droneGain = ctx.createGain();
+        drone.type = 'sine';
+        drone.frequency.value = 110;
+        droneGain.gain.value = 0.04;
+        drone.connect(droneGain);
+        droneGain.connect(master);
+        drone.start();
+
+        // Second drone (fifth above)
+        var drone2 = ctx.createOscillator();
+        var drone2Gain = ctx.createGain();
+        drone2.type = 'sine';
+        drone2.frequency.value = 165;
+        drone2Gain.gain.value = 0.02;
+        drone2.connect(drone2Gain);
+        drone2Gain.connect(master);
+        drone2.start();
+
+        // Twinkling arpeggios
+        var twinkleNotes = [330, 392, 440, 523, 587, 659, 784];
+        var twinkleInterval = setInterval(function () {
+          if (data && data.settings && data.settings.muted) return;
+          var freq = twinkleNotes[Math.floor(Math.random() * twinkleNotes.length)];
+          var osc = ctx.createOscillator();
+          var g = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          g.gain.setValueAtTime(0.03, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2);
+          osc.connect(g);
+          g.connect(master);
+          osc.start();
+          osc.stop(ctx.currentTime + 2);
+        }, 1500 + Math.random() * 2000);
+
+        // Fade in
+        master.gain.linearRampToValueAtTime(1, ctx.currentTime + 2);
+
+        bgMusic.current = 'ambient';
+        bgMusic.nodes = { master: master, oscs: [drone, drone2], intervals: [twinkleInterval] };
+      } catch (e) {}
+    });
+  }
+
+  function startGameplayMusic() {
+    if (bgMusic.current === 'gameplay') return;
+    stopBgMusic(function () {
+      try {
+        var ctx = getAudioCtx();
+        if (ctx.state === 'suspended') ctx.resume();
+        var master = ctx.createGain();
+        master.gain.setValueAtTime(0, ctx.currentTime);
+        master.connect(ctx.destination);
+
+        // Steady low pulse
+        var bass = ctx.createOscillator();
+        var bassGain = ctx.createGain();
+        bass.type = 'triangle';
+        bass.frequency.value = 82.4;
+        bassGain.gain.value = 0.035;
+        bass.connect(bassGain);
+        bassGain.connect(master);
+        bass.start();
+
+        // Gentle rhythmic pulse via LFO on gain
+        var lfo = ctx.createOscillator();
+        var lfoGain = ctx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 0.5;
+        lfoGain.gain.value = 0.015;
+        lfo.connect(lfoGain);
+        lfoGain.connect(bassGain.gain);
+        lfo.start();
+
+        // Soft pad
+        var pad = ctx.createOscillator();
+        var padGain = ctx.createGain();
+        pad.type = 'sine';
+        pad.frequency.value = 220;
+        padGain.gain.value = 0.02;
+        pad.connect(padGain);
+        padGain.connect(master);
+        pad.start();
+
+        // Melodic movement — pentatonic notes
+        var melodyNotes = [330, 392, 440, 523, 587];
+        var noteIndex = 0;
+        var melodyInterval = setInterval(function () {
+          if (data && data.settings && data.settings.muted) return;
+          var freq = melodyNotes[noteIndex % melodyNotes.length];
+          noteIndex++;
+          var osc = ctx.createOscillator();
+          var g = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          g.gain.setValueAtTime(0.025, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
+          osc.connect(g);
+          g.connect(master);
+          osc.start();
+          osc.stop(ctx.currentTime + 1.5);
+        }, 2000);
+
+        // Fade in
+        master.gain.linearRampToValueAtTime(1, ctx.currentTime + 1.5);
+
+        bgMusic.current = 'gameplay';
+        bgMusic.nodes = { master: master, oscs: [bass, lfo, pad], intervals: [melodyInterval] };
+      } catch (e) {}
+    });
+  }
+
+  function stopBgMusic(cb) {
+    if (!bgMusic.nodes) { if (cb) cb(); return; }
+    try {
+      var ctx = getAudioCtx();
+      var master = bgMusic.nodes.master;
+      master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+      master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+      var oscs = bgMusic.nodes.oscs;
+      var intervals = bgMusic.nodes.intervals;
+      for (var i = 0; i < intervals.length; i++) clearInterval(intervals[i]);
+      setTimeout(function () {
+        for (var i = 0; i < oscs.length; i++) {
+          try { oscs[i].stop(); } catch (e) {}
+        }
+        bgMusic.nodes = null;
+        bgMusic.current = null;
+        if (cb) cb();
+      }, 600);
+    } catch (e) {
+      bgMusic.nodes = null;
+      bgMusic.current = null;
+      if (cb) cb();
+    }
+  }
+
+  function updateBgMusic(screen) {
+    if (data && data.settings && data.settings.muted) {
+      stopBgMusic();
+      return;
+    }
+    if (screen === 'practice') {
+      startGameplayMusic();
+    } else if (screen === 'home' || screen === 'practice-config' || screen === 'challenge' || screen === 'challenge-wait') {
+      startAmbientMusic();
+    } else if (screen === 'summary') {
+      startAmbientMusic();
+    }
+  }
+
   // --- Challenge Mode ---
   var CHALLENGE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
   var CHALLENGE_EPOCH = Date.UTC(2025, 0, 1);
@@ -323,6 +489,7 @@
       sections[i].classList.remove('active');
     }
     document.getElementById(name).classList.add('active');
+    updateBgMusic(name);
   }
 
   // --- Weighted Random Pick ---
@@ -1342,6 +1509,11 @@
     data.settings.muted = !data.settings.muted;
     updateMuteBtn();
     saveData();
+    if (data.settings.muted) {
+      stopBgMusic();
+    } else {
+      updateBgMusic(document.querySelector('section.active').id);
+    }
   });
 
   document.getElementById('start-btn').addEventListener('click', startSession);
