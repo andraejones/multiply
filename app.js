@@ -1233,13 +1233,52 @@
   function renderHistory() {
     var container = document.getElementById('history-list');
     container.innerHTML = '';
+    var summaryEl = document.getElementById('history-summary');
+    summaryEl.innerHTML = '';
 
-    var dates = Object.keys(data.history).sort().reverse().slice(0, 30);
+    var allDates = Object.keys(data.history).sort().reverse();
 
-    if (dates.length === 0) {
+    if (allDates.length === 0) {
       container.innerHTML = '<p style="text-align:center;color:rgba(255,255,255,0.5);font-weight:700;">No sessions yet. Start practicing!</p>';
       return;
     }
+
+    // Compute all-time totals
+    var allCorrect = 0, allTotal = 0;
+    for (var i = 0; i < allDates.length; i++) {
+      allCorrect += data.history[allDates[i]].correct;
+      allTotal += data.history[allDates[i]].total;
+    }
+    var allAccuracy = allTotal > 0 ? Math.round((allCorrect / allTotal) * 100) : 0;
+
+    // Compute last-7-days totals
+    var today = todayLocal();
+    var d = new Date(today + 'T00:00:00');
+    d.setDate(d.getDate() - 6);
+    var cutoff = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    var weekCorrect = 0, weekTotal = 0;
+    for (var i = 0; i < allDates.length; i++) {
+      if (allDates[i] >= cutoff) {
+        weekCorrect += data.history[allDates[i]].correct;
+        weekTotal += data.history[allDates[i]].total;
+      }
+    }
+    var weekAccuracy = weekTotal > 0 ? Math.round((weekCorrect / weekTotal) * 100) : 0;
+
+    // Render summary cards
+    summaryEl.innerHTML =
+      '<div class="history-summary-card">' +
+        '<div class="history-summary-label">All Time</div>' +
+        '<div class="history-summary-total">' + allCorrect + ' / ' + allTotal + '</div>' +
+        '<div class="history-summary-accuracy">' + allAccuracy + '% correct</div>' +
+      '</div>' +
+      '<div class="history-summary-card">' +
+        '<div class="history-summary-label">Last 7 Days</div>' +
+        '<div class="history-summary-total">' + weekCorrect + ' / ' + weekTotal + '</div>' +
+        '<div class="history-summary-accuracy">' + weekAccuracy + '% correct</div>' +
+      '</div>';
+
+    var dates = allDates.slice(0, 30);
 
     for (var i = 0; i < dates.length; i++) {
       var date = dates[i];

@@ -555,6 +555,38 @@ h2 {
 }
 
 /* History screen */
+.history-summary {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 16px;
+}
+.history-summary-card {
+  flex: 1;
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+}
+.history-summary-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.history-summary-total {
+  font-weight: 900;
+  font-size: 1.3rem;
+  color: #fff;
+}
+.history-summary-accuracy {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--correct);
+  margin-top: 4px;
+}
 .history-list {
   width: 100%;
   display: flex;
