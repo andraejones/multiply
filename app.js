@@ -366,6 +366,7 @@
     bestStreak: 0,
     streakCelebrated: false,
     timerSeconds: 0,
+    initialTimerSeconds: 0,
     timerInterval: null,
     currentFact: null,
     previousFact: null,
@@ -434,7 +435,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
-      // silently fail
+      console.warn('multiply-trainer: failed to save:', e.message || e);
     }
   }
 
@@ -455,6 +456,7 @@
               attempts: src.attempts || 0,
               streak: 0,
               bestStreak: src.bestStreak || 0,
+              lastCorrect: src.lastCorrect || 0,
             };
           }
         }
@@ -670,7 +672,7 @@
       } else {
         celebrationShowing = false;
         // Resume play
-        if (session.timerSeconds > 0 || session.paused) {
+        if (session.timerSeconds > 0) {
           nextProblem();
         }
       }
@@ -973,6 +975,7 @@
     session.streakCelebrated = false;
     session.totalTime = 0;
     session.timerSeconds = data.settings.timerMinutes * 60;
+    session.initialTimerSeconds = session.timerSeconds;
     clearInterval(session.questionTimerInterval);
     session.questionTimeLeft = 0;
     celebrationQueue = [];
@@ -1009,6 +1012,7 @@
     session.streakCelebrated = false;
     session.totalTime = 0;
     session.timerSeconds = config.roundMinutes * 60;
+    session.initialTimerSeconds = session.timerSeconds;
     clearInterval(session.questionTimerInterval);
     session.questionTimeLeft = 0;
     celebrationQueue = [];
@@ -1016,9 +1020,6 @@
     document.getElementById('celebration-overlay').style.display = 'none';
     document.getElementById('streak-overlay').style.display = 'none';
     generateStars();
-
-    session._origTimerMinutes = data.settings.timerMinutes;
-    data.settings.timerMinutes = config.roundMinutes;
 
     document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
     document.getElementById('best-streak-display').textContent = 'Best: 0';
@@ -1057,6 +1058,7 @@
     session.streakCelebrated = false;
     session.totalTime = 0;
     session.timerSeconds = timerMinutes * 60;
+    session.initialTimerSeconds = session.timerSeconds;
     clearInterval(session.questionTimerInterval);
     session.questionTimeLeft = 0;
     celebrationQueue = [];
@@ -1082,7 +1084,7 @@
     document.getElementById('question-timer-wrap').style.display = 'none';
 
     // Compute rate before zeroing timerSeconds
-    var elapsedMinutes = data.settings.timerMinutes - (session.timerSeconds / 60);
+    var elapsedMinutes = (session.initialTimerSeconds - session.timerSeconds) / 60;
     session.timerSeconds = 0;
 
     var rate = elapsedMinutes > 0 ? Math.round((session.correct / elapsedMinutes) * 10) / 10 : 0;
@@ -1129,11 +1131,6 @@
         rate: rate,
         bestStreak: session.bestStreak,
       };
-
-      // Restore timer setting if overridden by challenge
-      if (session.challengeMode && session._origTimerMinutes !== undefined) {
-        data.settings.timerMinutes = session._origTimerMinutes;
-      }
 
       saveData();
     }
@@ -1269,7 +1266,9 @@
   function formatDate(dateStr) {
     var parts = dateStr.split('-');
     var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
+    var monthIdx = parseInt(parts[1], 10) - 1;
+    if (parts.length < 3 || isNaN(monthIdx) || monthIdx < 0 || monthIdx > 11) return dateStr;
+    return months[monthIdx] + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
   }
 
   // --- Weakest Facts View ---
