@@ -8,6 +8,7 @@
 
   // --- Sound Effects ---
   var audioCtx = null;
+  var audioUnlocked = false;
   function getAudioCtx() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     return audioCtx;
@@ -210,6 +211,7 @@
       stopBgMusic();
       return;
     }
+    if (!audioUnlocked) return;
     if (screen === 'practice') {
       startGameplayMusic();
     } else if (screen === 'home' || screen === 'practice-config' || screen === 'challenge' || screen === 'challenge-wait') {
@@ -218,6 +220,17 @@
       startAmbientMusic();
     }
   }
+
+  function unlockAudio() {
+    audioUnlocked = true;
+    document.removeEventListener('pointerdown', unlockAudio, true);
+    document.removeEventListener('keydown', unlockAudio, true);
+    var activeSection = document.querySelector('section.active');
+    if (activeSection) updateBgMusic(activeSection.id);
+  }
+
+  document.addEventListener('pointerdown', unlockAudio, true);
+  document.addEventListener('keydown', unlockAudio, true);
 
   // --- Challenge Mode ---
   var CHALLENGE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -260,15 +273,16 @@
   }
 
   function encodeChallenge(config) {
-    var minutesSinceEpoch = Math.floor((config.startTime - CHALLENGE_EPOCH) / 60000);
-    minutesSinceEpoch = Math.max(0, Math.min((1 << 22) - 1, minutesSinceEpoch));
+    var secondsSinceEpoch = Math.round((config.startTime - CHALLENGE_EPOCH) / 1000);
+    secondsSinceEpoch = Math.max(0, Math.min((1 << 28) - 1, secondsSinceEpoch));
     var roundVal = Math.max(0, Math.min(7, config.roundMinutes - 1));
+    var seed = Math.max(0, Math.min((1 << 16) - 1, config.seed));
 
     var bits = [];
-    for (var i = 21; i >= 0; i--) bits.push((minutesSinceEpoch >> i) & 1);
+    for (var i = 27; i >= 0; i--) bits.push((secondsSinceEpoch >> i) & 1);
     for (var i = 2; i >= 0; i--) bits.push((roundVal >> i) & 1);
     for (var i = 11; i >= 0; i--) bits.push((config.factMask >> i) & 1);
-    for (var i = 19; i >= 0; i--) bits.push((config.seed >> i) & 1);
+    for (var i = 15; i >= 0; i--) bits.push((seed >> i) & 1);
 
     var digits = [];
     for (var d = 0; d < 12; d++) {
@@ -326,20 +340,20 @@
         allBits.push((value[i] >> b) & 1);
       }
     }
-    while (allBits.length < 57) allBits.unshift(0);
-    if (allBits.length > 57) allBits = allBits.slice(allBits.length - 57);
+    while (allBits.length < 59) allBits.unshift(0);
+    if (allBits.length > 59) allBits = allBits.slice(allBits.length - 59);
 
     var startTimestamp = 0;
-    for (var i = 0; i < 22; i++) startTimestamp = startTimestamp * 2 + allBits[i];
+    for (var i = 0; i < 28; i++) startTimestamp = startTimestamp * 2 + allBits[i];
     var roundVal = 0;
-    for (var i = 22; i < 25; i++) roundVal = roundVal * 2 + allBits[i];
+    for (var i = 28; i < 31; i++) roundVal = roundVal * 2 + allBits[i];
     var factMask = 0;
-    for (var i = 25; i < 37; i++) factMask = factMask * 2 + allBits[i];
+    for (var i = 31; i < 43; i++) factMask = factMask * 2 + allBits[i];
     var seed = 0;
-    for (var i = 37; i < 57; i++) seed = seed * 2 + allBits[i];
+    for (var i = 43; i < 59; i++) seed = seed * 2 + allBits[i];
 
     return {
-      startTime: CHALLENGE_EPOCH + startTimestamp * 60000,
+      startTime: CHALLENGE_EPOCH + startTimestamp * 1000,
       roundMinutes: roundVal + 1,
       factMask: factMask,
       seed: seed,
@@ -383,6 +397,7 @@
     challengeSequence: [],
     challengeIndex: 0,
     challengeCountdownInterval: null,
+    endTime: null,
     sandboxMode: false,
     sandboxFactKeys: null,
   };
@@ -939,8 +954,12 @@
   function startTimer() {
     updateTimerDisplay();
     session.timerInterval = setInterval(function () {
-      if (session.paused) return;
-      session.timerSeconds--;
+      if (!session.challengeMode && session.paused) return;
+      if (session.endTime) {
+        session.timerSeconds = Math.max(0, Math.ceil((session.endTime - Date.now()) / 1000));
+      } else {
+        session.timerSeconds--;
+      }
       updateTimerDisplay();
       if (session.timerSeconds <= 0) {
         endSession();
@@ -960,6 +979,7 @@
     session.challengeConfig = null;
     session.challengeSequence = [];
     session.challengeIndex = 0;
+    session.endTime = null;
     session.sandboxMode = false;
     session.sandboxFactKeys = null;
     session.correct = 0;
@@ -998,6 +1018,7 @@
     session.challengeConfig = config;
     session.challengeSequence = buildChallengeSequence(config.seed, config.factMask);
     session.challengeIndex = 0;
+    session.endTime = config.startTime + config.roundMinutes * 60000;
 
     session.correct = 0;
     session.total = 0;
@@ -1011,7 +1032,7 @@
     session.requiredRetype = null;
     session.streakCelebrated = false;
     session.totalTime = 0;
-    session.timerSeconds = config.roundMinutes * 60;
+    session.timerSeconds = Math.max(0, Math.ceil((session.endTime - Date.now()) / 1000));
     session.initialTimerSeconds = session.timerSeconds;
     clearInterval(session.questionTimerInterval);
     session.questionTimeLeft = 0;
@@ -1043,6 +1064,7 @@
     session.challengeConfig = null;
     session.challengeSequence = [];
     session.challengeIndex = 0;
+    session.endTime = null;
     session.sandboxMode = true;
     session.sandboxFactKeys = keys;
     session.correct = 0;
@@ -1720,19 +1742,23 @@
     showScreen('challenge-wait');
 
     clearInterval(session.challengeCountdownInterval);
-    session.challengeCountdownInterval = setInterval(function () {
+    function updateCountdown() {
       var remaining = config.startTime - Date.now();
       if (remaining <= 0) {
         clearInterval(session.challengeCountdownInterval);
         countdownEl.textContent = '00:00';
         startChallengeSession(config);
-        return;
+        return false;
       }
       var totalSec = Math.ceil(remaining / 1000);
       var m = Math.floor(totalSec / 60);
       var s = totalSec % 60;
       countdownEl.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
-    }, 100);
+      return true;
+    }
+    if (updateCountdown()) {
+      session.challengeCountdownInterval = setInterval(updateCountdown, 100);
+    }
   }
 
   document.getElementById('challenge-btn').addEventListener('click', function () {
@@ -1814,13 +1840,14 @@
       return;
     }
     var startTime = Date.now() + challengeStartMinutes * 60000;
-    var seed = Math.floor(Math.random() * (1 << 20));
+    var seed = Math.floor(Math.random() * (1 << 16));
     var config = {
       startTime: startTime,
       roundMinutes: challengeRoundMinutes,
       factMask: challengeFactMask,
       seed: seed,
     };
+    config = decodeChallenge(encodeChallenge(config));
     startChallengeCountdown(config);
   });
 
@@ -1842,9 +1869,10 @@
     }
 
     errorEl.textContent = '';
-    if (config.startTime <= Date.now()) {
-      var lateSeconds = Math.floor((Date.now() - config.startTime) / 1000);
-      config.roundMinutes = Math.max(10, config.roundMinutes * 60 - lateSeconds) / 60;
+    if (config.startTime + config.roundMinutes * 60000 <= Date.now()) {
+      errorEl.textContent = 'This challenge has ended.';
+      errorEl.style.color = 'var(--wrong)';
+    } else if (config.startTime <= Date.now()) {
       startChallengeSession(config);
     } else {
       startChallengeCountdown(config);
