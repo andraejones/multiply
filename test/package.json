@@ -1,0 +1,10 @@
+{
+  "name": "multiply-smoke-test",
+  "private": true,
+  "scripts": {
+    "test": "node smoke.js"
+  },
+  "dependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}
