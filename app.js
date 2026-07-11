@@ -57,8 +57,35 @@
   // --- Background Music ---
   var bgMusic = { current: null, nodes: null, fadeInterval: null };
 
-  function startAmbientMusic() {
-    if (bgMusic.current === 'ambient') return;
+  function addOsc(ctx, dest, type, freq, gainVal) {
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.value = gainVal;
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.start();
+    return { osc: osc, gain: gain };
+  }
+
+  function playPluck(ctx, dest, freq, gainVal, duration) {
+    var osc = ctx.createOscillator();
+    var g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(gainVal, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.connect(g);
+    g.connect(dest);
+    osc.start();
+    osc.stop(ctx.currentTime + duration);
+  }
+
+  // build(ctx, master) wires a track into the master gain and returns
+  // { oscs, intervals, fadeIn } for stopBgMusic to tear down later.
+  function startMusicTrack(name, build) {
+    if (bgMusic.current === name) return;
     stopBgMusic(function () {
       try {
         var ctx = getAudioCtx();
@@ -66,118 +93,58 @@
         var master = ctx.createGain();
         master.gain.setValueAtTime(0, ctx.currentTime);
         master.connect(ctx.destination);
-
-        // Low drone pad
-        var drone = ctx.createOscillator();
-        var droneGain = ctx.createGain();
-        drone.type = 'sine';
-        drone.frequency.value = 110;
-        droneGain.gain.value = 0.04;
-        drone.connect(droneGain);
-        droneGain.connect(master);
-        drone.start();
-
-        // Second drone (fifth above)
-        var drone2 = ctx.createOscillator();
-        var drone2Gain = ctx.createGain();
-        drone2.type = 'sine';
-        drone2.frequency.value = 165;
-        drone2Gain.gain.value = 0.02;
-        drone2.connect(drone2Gain);
-        drone2Gain.connect(master);
-        drone2.start();
-
-        // Twinkling arpeggios
-        var twinkleNotes = [330, 392, 440, 523, 587, 659, 784];
-        var twinkleInterval = setInterval(function () {
-          if (data && data.settings && data.settings.muted) return;
-          var freq = twinkleNotes[Math.floor(Math.random() * twinkleNotes.length)];
-          var osc = ctx.createOscillator();
-          var g = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          g.gain.setValueAtTime(0.03, ctx.currentTime);
-          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2);
-          osc.connect(g);
-          g.connect(master);
-          osc.start();
-          osc.stop(ctx.currentTime + 2);
-        }, 1500 + Math.random() * 2000);
-
-        // Fade in
-        master.gain.linearRampToValueAtTime(1, ctx.currentTime + 2);
-
-        bgMusic.current = 'ambient';
-        bgMusic.nodes = { master: master, oscs: [drone, drone2], intervals: [twinkleInterval] };
+        var track = build(ctx, master);
+        master.gain.linearRampToValueAtTime(1, ctx.currentTime + track.fadeIn);
+        bgMusic.current = name;
+        bgMusic.nodes = { master: master, oscs: track.oscs, intervals: track.intervals };
       } catch (e) {}
     });
   }
 
+  function startAmbientMusic() {
+    startMusicTrack('ambient', function (ctx, master) {
+      // Drone pad: root plus a fifth above
+      var drone = addOsc(ctx, master, 'sine', 110, 0.04);
+      var drone2 = addOsc(ctx, master, 'sine', 165, 0.02);
+
+      // Twinkling arpeggios
+      var twinkleNotes = [330, 392, 440, 523, 587, 659, 784];
+      var twinkleInterval = setInterval(function () {
+        if (data && data.settings && data.settings.muted) return;
+        var freq = twinkleNotes[Math.floor(Math.random() * twinkleNotes.length)];
+        playPluck(ctx, master, freq, 0.03, 2);
+      }, 1500 + Math.random() * 2000);
+
+      return { oscs: [drone.osc, drone2.osc], intervals: [twinkleInterval], fadeIn: 2 };
+    });
+  }
+
   function startGameplayMusic() {
-    if (bgMusic.current === 'gameplay') return;
-    stopBgMusic(function () {
-      try {
-        var ctx = getAudioCtx();
-        if (ctx.state === 'suspended') ctx.resume();
-        var master = ctx.createGain();
-        master.gain.setValueAtTime(0, ctx.currentTime);
-        master.connect(ctx.destination);
+    startMusicTrack('gameplay', function (ctx, master) {
+      // Steady low pulse with a gentle rhythmic LFO on its gain
+      var bass = addOsc(ctx, master, 'triangle', 82.4, 0.035);
+      var lfo = ctx.createOscillator();
+      var lfoGain = ctx.createGain();
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.5;
+      lfoGain.gain.value = 0.015;
+      lfo.connect(lfoGain);
+      lfoGain.connect(bass.gain.gain);
+      lfo.start();
 
-        // Steady low pulse
-        var bass = ctx.createOscillator();
-        var bassGain = ctx.createGain();
-        bass.type = 'triangle';
-        bass.frequency.value = 82.4;
-        bassGain.gain.value = 0.035;
-        bass.connect(bassGain);
-        bassGain.connect(master);
-        bass.start();
+      // Soft pad
+      var pad = addOsc(ctx, master, 'sine', 220, 0.02);
 
-        // Gentle rhythmic pulse via LFO on gain
-        var lfo = ctx.createOscillator();
-        var lfoGain = ctx.createGain();
-        lfo.type = 'sine';
-        lfo.frequency.value = 0.5;
-        lfoGain.gain.value = 0.015;
-        lfo.connect(lfoGain);
-        lfoGain.connect(bassGain.gain);
-        lfo.start();
+      // Melodic movement — pentatonic notes
+      var melodyNotes = [330, 392, 440, 523, 587];
+      var noteIndex = 0;
+      var melodyInterval = setInterval(function () {
+        if (data && data.settings && data.settings.muted) return;
+        playPluck(ctx, master, melodyNotes[noteIndex % melodyNotes.length], 0.025, 1.5);
+        noteIndex++;
+      }, 2000);
 
-        // Soft pad
-        var pad = ctx.createOscillator();
-        var padGain = ctx.createGain();
-        pad.type = 'sine';
-        pad.frequency.value = 220;
-        padGain.gain.value = 0.02;
-        pad.connect(padGain);
-        padGain.connect(master);
-        pad.start();
-
-        // Melodic movement — pentatonic notes
-        var melodyNotes = [330, 392, 440, 523, 587];
-        var noteIndex = 0;
-        var melodyInterval = setInterval(function () {
-          if (data && data.settings && data.settings.muted) return;
-          var freq = melodyNotes[noteIndex % melodyNotes.length];
-          noteIndex++;
-          var osc = ctx.createOscillator();
-          var g = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          g.gain.setValueAtTime(0.025, ctx.currentTime);
-          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
-          osc.connect(g);
-          g.connect(master);
-          osc.start();
-          osc.stop(ctx.currentTime + 1.5);
-        }, 2000);
-
-        // Fade in
-        master.gain.linearRampToValueAtTime(1, ctx.currentTime + 1.5);
-
-        bgMusic.current = 'gameplay';
-        bgMusic.nodes = { master: master, oscs: [bass, lfo, pad], intervals: [melodyInterval] };
-      } catch (e) {}
+      return { oscs: [bass.osc, lfo, pad.osc], intervals: [melodyInterval], fadeIn: 1.5 };
     });
   }
 
@@ -214,9 +181,7 @@
     if (!audioUnlocked) return;
     if (screen === 'practice') {
       startGameplayMusic();
-    } else if (screen === 'home' || screen === 'practice-config' || screen === 'challenge' || screen === 'challenge-wait') {
-      startAmbientMusic();
-    } else if (screen === 'summary') {
+    } else if (screen === 'home' || screen === 'practice-config' || screen === 'challenge' || screen === 'challenge-wait' || screen === 'summary') {
       startAmbientMusic();
     }
   }
@@ -403,9 +368,16 @@
   };
 
   // --- Defaults ---
-  function todayLocal() {
-    var d = new Date();
+  function formatYMD(d) {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function todayLocal() {
+    return formatYMD(new Date());
+  }
+
+  function percent(part, whole) {
+    return whole > 0 ? Math.round((part / whole) * 100) : 0;
   }
 
   function defaults() {
@@ -570,7 +542,11 @@
     fb.textContent = '';
     fb.className = 'feedback';
 
-    // Start per-question timer
+    startQuestionTimer(autoExpire);
+  }
+
+  // --- Per-question countdown (10s, bar shown for the last 3s) ---
+  function startQuestionTimer(onExpire) {
     session.questionTimeLeft = 10000;
     clearInterval(session.questionTimerInterval);
     var qWrap = document.getElementById('question-timer-wrap');
@@ -587,7 +563,7 @@
       if (session.questionTimeLeft <= 0) {
         clearInterval(session.questionTimerInterval);
         qWrap.style.display = 'none';
-        autoExpire();
+        onExpire();
       }
     }, 100);
   }
@@ -612,6 +588,13 @@
       else if (w <= 4) points += 1;
     }
     return Math.round((points / (keys.length * 3)) * 100);
+  }
+
+  function levelIndexByTitle(title) {
+    for (var i = 0; i < LEVELS.length; i++) {
+      if (LEVELS[i].title === title) return i;
+    }
+    return 0;
   }
 
   function getPlayerLevel() {
@@ -700,73 +683,66 @@
     setTimeout(dismiss, 2500);
   }
 
-  // --- Auto-expire (time ran out on question) ---
-  function autoExpire() {
-    var key = session.currentFact;
-    var fact = data.facts[key];
-    var parts = key.split('x').map(Number);
-    var correctAnswer = parts[0] * parts[1];
-    var input = document.getElementById('answer-input');
-    var fb = document.getElementById('feedback');
+  // --- Session HUD (streak / best / score) ---
+  function updateHud() {
+    document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
+    document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
+    document.getElementById('session-score').textContent = session.correct + ' correct';
+  }
 
+  // --- Miss handling (wrong answer or timeout) ---
+  // Penalizes the fact, shows the correct answer, then either auto-advances
+  // (challenge mode) or requires the child to retype the answer.
+  function handleMiss(key, parts, correctAnswer) {
     if (!session.sandboxMode) {
+      var fact = data.facts[key];
       fact.weight = Math.min(31, fact.weight + 1);
-      fact.attempts++;
       fact.streak = 0;
     }
     session.streak = 0;
     session.streakCelebrated = false;
-    session.total++;
-    session.totalTime += 10000;
-
     if (!session.wrongFacts.includes(key)) session.wrongFacts.push(key);
 
+    var fb = document.getElementById('feedback');
     fb.textContent = correctAnswer + '  \u2014 ' + parts[0] + ' \u00D7 ' + parts[1] + ' = ' + correctAnswer;
     fb.className = 'feedback wrong';
     playWrongSound();
-    document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
-    document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
-    document.getElementById('session-score').textContent = session.correct + ' correct';
+    updateHud();
     if (!session.sandboxMode) saveData();
 
+    var input = document.getElementById('answer-input');
+    input.value = '';
     if (session.challengeMode) {
-      input.value = '';
       setTimeout(function () {
         if (session.timerSeconds > 0) nextProblem();
       }, 800);
     } else {
       session.waitingForRetype = true;
       session.requiredRetype = correctAnswer;
-      input.value = '';
       input.placeholder = String(correctAnswer);
       startRetypeTimer();
     }
   }
 
+  // --- Auto-expire (time ran out on question) ---
+  function autoExpire() {
+    var key = session.currentFact;
+    var parts = key.split('x').map(Number);
+    if (!session.sandboxMode) data.facts[key].attempts++;
+    session.total++;
+    session.totalTime += 10000;
+    handleMiss(key, parts, parts[0] * parts[1]);
+  }
+
   function startRetypeTimer() {
-    session.questionTimeLeft = 10000;
-    clearInterval(session.questionTimerInterval);
-    var qWrap = document.getElementById('question-timer-wrap');
-    var qBar = document.getElementById('question-timer-bar');
-    qWrap.style.display = 'none';
-    qBar.style.width = '100%';
-    session.questionTimerInterval = setInterval(function () {
-      if (session.paused) return;
-      session.questionTimeLeft -= 100;
-      if (session.questionTimeLeft <= 3000) {
-        qWrap.style.display = '';
-        qBar.style.width = Math.max(0, (session.questionTimeLeft / 3000) * 100) + '%';
-      }
-      if (session.questionTimeLeft <= 0) {
-        clearInterval(session.questionTimerInterval);
-        qWrap.style.display = 'none';
-        session.waitingForRetype = false;
-        session.requiredRetype = null;
-        document.getElementById('answer-input').value = '';
-        document.getElementById('answer-input').placeholder = '?';
-        if (session.timerSeconds > 0) nextProblem();
-      }
-    }, 100);
+    startQuestionTimer(function () {
+      session.waitingForRetype = false;
+      session.requiredRetype = null;
+      var input = document.getElementById('answer-input');
+      input.value = '';
+      input.placeholder = '?';
+      if (session.timerSeconds > 0) nextProblem();
+    });
   }
 
   // --- Submit ---
@@ -832,10 +808,7 @@
       fb.textContent = getCorrectMessage();
       fb.className = 'feedback correct';
       playCorrectSound();
-
-      document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
-      document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
-      document.getElementById('session-score').textContent = session.correct + ' correct';
+      updateHud();
 
       if (!session.sandboxMode) saveData();
 
@@ -844,7 +817,8 @@
 
       // Check for level-up
       var currentLevel = getPlayerLevel();
-      var leveledUp = !session.sandboxMode && data.lastTitle && currentLevel.title !== data.lastTitle && LEVELS.indexOf(currentLevel) > LEVELS.indexOf(LEVELS.find(function (l) { return l.title === data.lastTitle; }) || LEVELS[0]);
+      var leveledUp = !session.sandboxMode && data.lastTitle && currentLevel.title !== data.lastTitle &&
+        LEVELS.indexOf(currentLevel) > levelIndexByTitle(data.lastTitle);
       if (!session.sandboxMode && currentLevel.title !== data.lastTitle) {
         data.lastTitle = currentLevel.title;
         saveData();
@@ -892,41 +866,7 @@
         // If mastery/level celebrations queued, showNextCelebration handles advancing
       }
     } else {
-      if (!session.sandboxMode) {
-        fact.weight = Math.min(31, fact.weight + 1);
-        fact.streak = 0;
-      }
-      session.streak = 0;
-      session.streakCelebrated = false;
-
-      if (!session.wrongFacts.includes(key)) {
-        session.wrongFacts.push(key);
-      }
-
-      fb.textContent = correctAnswer + '  \u2014 ' + parts[0] + ' \u00D7 ' + parts[1] + ' = ' + correctAnswer;
-      fb.className = 'feedback wrong';
-      playWrongSound();
-
-      document.getElementById('streak-display').textContent = session.streak + ' \uD83D\uDD25';
-      document.getElementById('best-streak-display').textContent = 'Best: ' + session.bestStreak;
-      document.getElementById('session-score').textContent = session.correct + ' correct';
-
-      if (!session.sandboxMode) saveData();
-
-      if (session.challengeMode) {
-        // Challenge mode: show correct answer briefly, auto-advance
-        input.value = '';
-        setTimeout(function () {
-          if (session.timerSeconds > 0) nextProblem();
-        }, 800);
-      } else {
-        // Retype mode: child must type the correct answer
-        session.waitingForRetype = true;
-        session.requiredRetype = correctAnswer;
-        input.value = '';
-        input.placeholder = String(correctAnswer);
-        startRetypeTimer();
-      }
+      handleMiss(key, parts, correctAnswer);
     }
   }
 
@@ -974,7 +914,9 @@
   }
 
   // --- Session ---
-  function startSession() {
+  // Resets all per-round state to plain-practice defaults; the start
+  // functions below override mode-specific fields before beginRound().
+  function resetSessionState() {
     session.challengeMode = false;
     session.challengeConfig = null;
     session.challengeSequence = [];
@@ -994,61 +936,37 @@
     session.requiredRetype = null;
     session.streakCelebrated = false;
     session.totalTime = 0;
-    session.timerSeconds = data.settings.timerMinutes * 60;
-    session.initialTimerSeconds = session.timerSeconds;
     clearInterval(session.questionTimerInterval);
     session.questionTimeLeft = 0;
     celebrationQueue = [];
     celebrationShowing = false;
+  }
+
+  function beginRound() {
+    session.initialTimerSeconds = session.timerSeconds;
     document.getElementById('celebration-overlay').style.display = 'none';
     document.getElementById('streak-overlay').style.display = 'none';
     generateStars();
-
-    document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
-    document.getElementById('best-streak-display').textContent = 'Best: 0';
-    document.getElementById('session-score').textContent = '0 correct';
-
+    updateHud();
     showScreen('practice');
     startTimer();
     nextProblem();
   }
 
+  function startSession() {
+    resetSessionState();
+    session.timerSeconds = data.settings.timerMinutes * 60;
+    beginRound();
+  }
+
   function startChallengeSession(config) {
+    resetSessionState();
     session.challengeMode = true;
     session.challengeConfig = config;
     session.challengeSequence = buildChallengeSequence(config.seed, config.factMask);
-    session.challengeIndex = 0;
     session.endTime = config.startTime + config.roundMinutes * 60000;
-
-    session.correct = 0;
-    session.total = 0;
-    session.streak = 0;
-    session.bestStreak = 0;
-    session.previousFact = null;
-    session.currentFact = null;
-    session.paused = false;
-    session.wrongFacts = [];
-    session.waitingForRetype = false;
-    session.requiredRetype = null;
-    session.streakCelebrated = false;
-    session.totalTime = 0;
     session.timerSeconds = Math.max(0, Math.ceil((session.endTime - Date.now()) / 1000));
-    session.initialTimerSeconds = session.timerSeconds;
-    clearInterval(session.questionTimerInterval);
-    session.questionTimeLeft = 0;
-    celebrationQueue = [];
-    celebrationShowing = false;
-    document.getElementById('celebration-overlay').style.display = 'none';
-    document.getElementById('streak-overlay').style.display = 'none';
-    generateStars();
-
-    document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
-    document.getElementById('best-streak-display').textContent = 'Best: 0';
-    document.getElementById('session-score').textContent = '0 correct';
-
-    showScreen('practice');
-    startTimer();
-    nextProblem();
+    beginRound();
   }
 
   function startSandboxSession(factMask, timerMinutes) {
@@ -1060,42 +978,15 @@
         }
       }
     }
-    session.challengeMode = false;
-    session.challengeConfig = null;
-    session.challengeSequence = [];
-    session.challengeIndex = 0;
-    session.endTime = null;
+    resetSessionState();
     session.sandboxMode = true;
     session.sandboxFactKeys = keys;
-    session.correct = 0;
-    session.total = 0;
-    session.streak = 0;
-    session.bestStreak = 0;
-    session.previousFact = null;
-    session.currentFact = null;
-    session.paused = false;
-    session.wrongFacts = [];
-    session.waitingForRetype = false;
-    session.requiredRetype = null;
-    session.streakCelebrated = false;
-    session.totalTime = 0;
     session.timerSeconds = timerMinutes * 60;
-    session.initialTimerSeconds = session.timerSeconds;
-    clearInterval(session.questionTimerInterval);
-    session.questionTimeLeft = 0;
-    celebrationQueue = [];
-    celebrationShowing = false;
-    document.getElementById('celebration-overlay').style.display = 'none';
-    document.getElementById('streak-overlay').style.display = 'none';
-    generateStars();
+    beginRound();
+  }
 
-    document.getElementById('streak-display').textContent = '0 \uD83D\uDD25';
-    document.getElementById('best-streak-display').textContent = 'Best: 0';
-    document.getElementById('session-score').textContent = '0 correct';
-
-    showScreen('practice');
-    startTimer();
-    nextProblem();
+  function sessionAvgSpeed() {
+    return session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
   }
 
   function endSession() {
@@ -1144,12 +1035,11 @@
       }
 
       // Save last round stats
-      var avgSpeed = session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
       data.lastRound = {
         correct: session.correct,
         total: session.total,
-        accuracy: session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0,
-        speed: avgSpeed,
+        accuracy: percent(session.correct, session.total),
+        speed: sessionAvgSpeed(),
         rate: rate,
         bestStreak: session.bestStreak,
       };
@@ -1171,10 +1061,9 @@
   function renderSummary() {
     document.getElementById('summary-correct').textContent = session.correct;
     document.getElementById('summary-total').textContent = session.total;
-    var accuracy = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
+    var accuracy = percent(session.correct, session.total);
     document.getElementById('summary-accuracy').textContent = accuracy + '%';
-    var avgSpeed = session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
-    document.getElementById('summary-speed').textContent = avgSpeed + 's';
+    document.getElementById('summary-speed').textContent = sessionAvgSpeed() + 's';
 
     var msg;
     if (accuracy >= 95) msg = 'Outstanding! You\'re a multiplication master!';
@@ -1271,13 +1160,12 @@
       allCorrect += data.history[allDates[i]].correct;
       allTotal += data.history[allDates[i]].total;
     }
-    var allAccuracy = allTotal > 0 ? Math.round((allCorrect / allTotal) * 100) : 0;
+    var allAccuracy = percent(allCorrect, allTotal);
 
     // Compute last-7-days totals
-    var today = todayLocal();
-    var d = new Date(today + 'T00:00:00');
+    var d = new Date(todayLocal() + 'T00:00:00');
     d.setDate(d.getDate() - 6);
-    var cutoff = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    var cutoff = formatYMD(d);
     var weekCorrect = 0, weekTotal = 0;
     for (var i = 0; i < allDates.length; i++) {
       if (allDates[i] >= cutoff) {
@@ -1285,7 +1173,7 @@
         weekTotal += data.history[allDates[i]].total;
       }
     }
-    var weekAccuracy = weekTotal > 0 ? Math.round((weekCorrect / weekTotal) * 100) : 0;
+    var weekAccuracy = percent(weekCorrect, weekTotal);
 
     // Render summary cards
     summaryEl.innerHTML =
@@ -1305,7 +1193,7 @@
     for (var i = 0; i < dates.length; i++) {
       var date = dates[i];
       var entry = data.history[date];
-      var accuracy = entry.total > 0 ? Math.round((entry.correct / entry.total) * 100) : 0;
+      var accuracy = percent(entry.correct, entry.total);
 
       var div = document.createElement('div');
       div.className = 'history-day';
@@ -1905,7 +1793,7 @@
   });
 
   document.getElementById('share-score-btn').addEventListener('click', function () {
-    var accuracy = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
+    var accuracy = percent(session.correct, session.total);
     var code = session.challengeConfig ? encodeChallenge(session.challengeConfig) : '';
     var text = 'Multiply! Challenge Result\n' +
       session.correct + ' correct / ' + session.total + ' total (' + accuracy + '%)\n' +
