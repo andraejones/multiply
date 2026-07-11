@@ -462,11 +462,15 @@
   }
 
   // --- Decay ---
+  // Mastery holds for a grace period after the last correct answer, then
+  // drifts back to neutral (5) over DECAY_DAYS so the fact resurfaces for review.
   var DECAY_DAYS = 14;
+  var DECAY_GRACE_DAYS = 7;
 
   function getEffectiveWeight(fact) {
-    if (!fact || fact.weight >= 5 || !fact.lastCorrect) return fact ? fact.weight : 5;
-    var days = (Date.now() - fact.lastCorrect) / 86400000;
+    if (!fact) return 5;
+    if (fact.weight >= 5 || !fact.lastCorrect) return fact.weight;
+    var days = (Date.now() - fact.lastCorrect) / 86400000 - DECAY_GRACE_DAYS;
     if (days <= 0) return fact.weight;
     var decay = Math.min(1, days / DECAY_DAYS);
     return Math.round(fact.weight + (5 - fact.weight) * decay);
@@ -496,18 +500,20 @@
   }
 
   // --- Weighted Random Pick ---
+  // Uses effective (decayed) weight so facts fading from mastery come back
+  // around for review instead of being avoided forever.
   function pickNextFact() {
     var keys = session.sandboxFactKeys ? session.sandboxFactKeys : Object.keys(data.facts);
     var totalWeight = 0;
     for (var i = 0; i < keys.length; i++) {
-      var w = Math.max(1, data.facts[keys[i]].weight);
+      var w = Math.max(1, getEffectiveWeight(data.facts[keys[i]]));
       totalWeight += w * w;
     }
 
     for (var attempt = 0; attempt < 4; attempt++) {
       var rand = Math.random() * totalWeight;
       for (var i = 0; i < keys.length; i++) {
-        var w = Math.max(1, data.facts[keys[i]].weight);
+        var w = Math.max(1, getEffectiveWeight(data.facts[keys[i]]));
         rand -= w * w;
         if (rand <= 0) {
           if (attempt < 3 && keys[i] === session.previousFact) {
@@ -617,11 +623,12 @@
     }
 
     // Decay: lose 1 level per 2 days inactive, never below Star Pilot (index 1)
+    // and never above the earned level (a Space Cadet stays a Space Cadet)
     if (data.lastPracticeDate) {
       var today = todayLocal();
       var daysInactive = Math.floor((new Date(today + 'T00:00:00') - new Date(data.lastPracticeDate + 'T00:00:00')) / 86400000);
       if (daysInactive >= 2) {
-        levelIndex = Math.max(1, levelIndex - Math.floor(daysInactive / 2));
+        levelIndex = Math.max(Math.min(levelIndex, 1), levelIndex - Math.floor(daysInactive / 2));
       }
     }
 
@@ -804,7 +811,7 @@
         fact.correct++;
         fact.streak++;
         if (fact.streak > fact.bestStreak) fact.bestStreak = fact.streak;
-        if (elapsed <= getFastThreshold(fact.weight)) fact.weight = Math.max(1, fact.weight - 1);
+        if (elapsed <= getFastThreshold(oldWeight)) fact.weight = Math.max(1, fact.weight - 1);
         fact.lastCorrect = Date.now();
       }
 
@@ -945,6 +952,8 @@
     session.requiredRetype = null;
     session.streakCelebrated = false;
     session.totalTime = 0;
+    clearInterval(session.timerInterval);
+    session.timerInterval = null;
     clearInterval(session.questionTimerInterval);
     session.questionTimeLeft = 0;
     celebrationQueue = [];
