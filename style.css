@@ -50,16 +50,33 @@ body {
     radial-gradient(900px 600px at 85% 110%, rgba(96,165,250,0.1), transparent 60%);
 }
 
+/* Stars sit in polar coordinates around screen center so the flying mode
+   can stream them outward along their own angle */
 .star {
   position: absolute;
+  left: 50%;
+  top: 50%;
   background: #fff;
   border-radius: 50%;
+  transform: rotate(var(--angle)) translateX(var(--mid));
   animation: star-blink var(--dur) ease-in-out var(--delay) infinite alternate;
+}
+
+/* Flying through space: home + summary screens */
+#star-field.flying .star {
+  animation:
+    star-blink var(--dur) ease-in-out var(--delay) infinite alternate,
+    star-fly var(--fly-dur) ease-in var(--fly-delay) infinite;
 }
 
 @keyframes star-blink {
   0%   { opacity: var(--lo); }
   100% { opacity: var(--hi); }
+}
+
+@keyframes star-fly {
+  from { transform: rotate(var(--angle)) translateX(2vmax) scale(0.4); }
+  to   { transform: rotate(var(--angle)) translateX(78vmax) scale(1.7); }
 }
 
 /* Question timer bar */
@@ -1002,7 +1019,8 @@ h2 {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  .star {
+  .star,
+  #star-field.flying .star {
     animation: none;
     opacity: var(--lo);
   }

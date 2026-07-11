@@ -496,6 +496,7 @@
       sections[i].classList.remove('active');
     }
     document.getElementById(name).classList.add('active');
+    document.getElementById('star-field').classList.toggle('flying', name === 'home' || name === 'summary');
     updateBgMusic(name);
   }
 
@@ -1832,24 +1833,32 @@
   });
 
   // --- Randomized Starfield ---
+  // Stars live in polar coordinates around screen center (--angle/--mid).
+  // Static screens show them scattered in place; screens with the "flying"
+  // class stream them outward from center along their angle (see star-fly).
   function generateStars() {
     var container = document.getElementById('star-field');
     container.innerHTML = '';
-    for (var i = 0; i < 80; i++) {
+    for (var i = 0; i < 110; i++) {
       var s = document.createElement('div');
       s.className = 'star';
       var size = 0.5 + Math.random() * 1.5;
       var lo = (0.1 + Math.random() * 0.25).toFixed(2);
       var hi = Math.min(1, parseFloat(lo) + 0.3 + Math.random() * 0.35).toFixed(2);
+      var flyDur = 14 + Math.random() * 14;
       s.style.cssText =
-        'left:' + (Math.random() * 100).toFixed(1) + '%;' +
-        'top:' + (Math.random() * 100).toFixed(1) + '%;' +
         'width:' + size.toFixed(1) + 'px;' +
         'height:' + size.toFixed(1) + 'px;' +
+        '--angle:' + (Math.random() * 360).toFixed(1) + 'deg;' +
+        // sqrt keeps the static field uniform over area instead of center-heavy
+        '--mid:' + (72 * Math.sqrt(Math.random())).toFixed(1) + 'vmax;' +
         '--dur:' + (2 + Math.random() * 5).toFixed(1) + 's;' +
         '--delay:' + (Math.random() * 5).toFixed(1) + 's;' +
         '--lo:' + lo + ';' +
-        '--hi:' + hi + ';';
+        '--hi:' + hi + ';' +
+        '--fly-dur:' + flyDur.toFixed(1) + 's;' +
+        // negative delay so the field is already mid-flight when shown
+        '--fly-delay:' + (-Math.random() * flyDur).toFixed(1) + 's;';
       container.appendChild(s);
     }
   }

@@ -66,11 +66,30 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (!/Current Rank:/.test(rank)) fail('player level missing: ' + rank);
   else ok('player level: ' + rank.trim());
 
+  // Starfield flies on the home screen (max drift across 10 stars over 700ms)
+  const starDrift = (samples) => page.evaluate(async (n) => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const stars = Array.from(document.querySelectorAll('.star')).slice(0, n);
+    const before = stars.map((s) => s.getBoundingClientRect().left);
+    await wait(700);
+    return Math.max(...stars.map((s, i) => Math.abs(s.getBoundingClientRect().left - before[i])));
+  }, samples);
+  if (!(await page.locator('#star-field.flying').count())) fail('star-field missing flying class on home');
+  else ok('star-field flying on home screen');
+  const homeDrift = await starDrift(10);
+  if (homeDrift < 1) fail('stars not drifting on home screen (max drift ' + homeDrift.toFixed(2) + 'px)');
+  else ok('stars drifting on home (' + homeDrift.toFixed(1) + 'px max over 700ms)');
+
   // Start a quick session
   await page.click('#start-btn');
   await page.waitForTimeout(200);
   if (await page.locator('section#practice.active').count() !== 1) fail('practice screen not active');
   else ok('practice screen active after start');
+
+  // Stars must hold still during practice (twinkle only)
+  const practiceDrift = await starDrift(10);
+  if (practiceDrift > 0.5) fail('stars drifting during practice (' + practiceDrift.toFixed(2) + 'px)');
+  else ok('stars static during practice');
 
   const problem = await page.locator('#problem-display').textContent();
   const m = problem.match(/(\d+)\s*×\s*(\d+)/);
