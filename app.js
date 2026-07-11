@@ -1014,6 +1014,9 @@
     clearInterval(session.questionTimerInterval);
     session.questionTimeLeft = 0;
     document.getElementById('question-timer-wrap').style.display = 'none';
+    // A challenge round can time out while the end-round modal is open
+    // (its timer runs on wall clock and ignores pause)
+    document.getElementById('end-modal').style.display = 'none';
 
     // Compute rate before zeroing timerSeconds
     var elapsedMinutes = (session.initialTimerSeconds - session.timerSeconds) / 60;
@@ -1047,8 +1050,9 @@
       }
       data.lastPracticeDate = today;
 
-      // Personal best (correct per minute)
-      if (rate > data.personalBest) {
+      // Personal best (correct per minute) — requires at least a minute of
+      // play so quitting a round seconds in can't set an inflated rate
+      if (rate > data.personalBest && elapsedMinutes >= 1) {
         data.personalBest = rate;
         session.isNewBest = true;
       }
@@ -1346,6 +1350,7 @@
     if (!session.timerInterval) return;
     if (!document.hidden && document.getElementById('streak-overlay').style.display !== 'none') return;
     if (!document.hidden && document.getElementById('celebration-overlay').style.display !== 'none') return;
+    if (!document.hidden && document.getElementById('end-modal').style.display !== 'none') return;
     session.paused = document.hidden;
   });
 
@@ -1536,8 +1541,24 @@
     }
   });
 
-  // End session early
+  // End session early (confirmation modal; pauses the round while deciding)
+  var endModal = document.getElementById('end-modal');
+
+  function closeEndModal() {
+    endModal.style.display = 'none';
+    session.paused = false;
+  }
+
   document.getElementById('end-btn').addEventListener('click', function () {
+    session.paused = true;
+    endModal.style.display = '';
+    document.getElementById('end-cancel-btn').focus();
+  });
+
+  document.getElementById('end-cancel-btn').addEventListener('click', closeEndModal);
+
+  document.getElementById('end-confirm-btn').addEventListener('click', function () {
+    endModal.style.display = 'none';
     clearInterval(session.challengeCountdownInterval);
     document.getElementById('celebration-overlay').style.display = 'none';
     document.getElementById('streak-overlay').style.display = 'none';
@@ -1545,6 +1566,14 @@
     celebrationShowing = false;
     session.paused = false;
     endSession();
+  });
+
+  endModal.addEventListener('click', function (e) {
+    if (e.target === endModal) closeEndModal();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && endModal.style.display !== 'none') closeEndModal();
   });
 
   // Reset progress (in-app confirmation modal)

@@ -131,8 +131,16 @@ function ok(msg) { console.log('ok: ' + msg); }
     else ok('advanced to next problem after retype');
   }
 
-  // End session -> summary
+  // End session -> confirmation modal; cancel resumes the round
   await page.click('#end-btn');
+  if (!(await page.locator('#end-modal').isVisible())) fail('end-round modal did not open');
+  else ok('end-round modal opens');
+  await page.click('#end-cancel-btn');
+  if (await page.locator('#end-modal').isVisible() || await page.locator('section#practice.active').count() !== 1) fail('cancel did not resume the round');
+  else ok('keep playing resumes the round');
+  // Confirm -> summary
+  await page.click('#end-btn');
+  await page.click('#end-confirm-btn');
   await page.waitForTimeout(200);
   if (await page.locator('section#summary.active').count() !== 1) fail('summary not shown after end');
   else ok('summary screen shown');
@@ -140,8 +148,11 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (acc.trim() !== '50%') fail('summary accuracy: ' + acc + ' (expected 50%)');
   else ok('summary accuracy 50% (1 of 2)');
 
-  // Back home, then history
+  // Back home: a seconds-long round must not set a rate personal best
   await page.click('#home-btn');
+  const pb = await page.locator('#personal-best').textContent();
+  if (!pb.trim().startsWith('0/min')) fail('personal best set by early exit: ' + pb);
+  else ok('personal best not set by short round (' + pb.trim() + ')');
   await page.click('#history-btn');
   await page.waitForTimeout(100);
   const histCards = await page.locator('.history-summary-card').count();
@@ -156,6 +167,7 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (await page.locator('section#practice.active').count() !== 1) fail('sandbox practice not active');
   else ok('sandbox session starts');
   await page.click('#end-btn');
+  await page.click('#end-confirm-btn');
   await page.waitForTimeout(100);
 
   // Challenge: generate code and verify countdown screen
@@ -251,6 +263,7 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (!decayedResurfaces) fail('decayed fact 7x8 never picked in 25 sandbox problems');
   else ok('decayed fact resurfaces in practice rotation');
   await page.click('#end-btn');
+  await page.click('#end-confirm-btn');
   await page.waitForTimeout(200);
   await page.click('#home-btn');
 
@@ -282,6 +295,7 @@ function ok(msg) { console.log('ok: ' + msg); }
     await page.waitForTimeout(300);
     await shot('shot-practice');
     await page.click('#end-btn');
+    await page.click('#end-confirm-btn');
     await page.waitForTimeout(200);
     await shot('shot-summary');
     ok('screenshots saved');
