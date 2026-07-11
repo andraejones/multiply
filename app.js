@@ -14,7 +14,7 @@
     return audioCtx;
   }
 
-  function playTone(freq, duration, type) {
+  function playTone(freq, duration, type, vol, endFreq) {
     if (data && data.settings && data.settings.muted) return;
     try {
       var ctx = getAudioCtx();
@@ -22,8 +22,9 @@
       var osc = ctx.createOscillator();
       var gain = ctx.createGain();
       osc.type = type || 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, ctx.currentTime + duration);
+      gain.gain.setValueAtTime(vol || 0.15, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -32,30 +33,42 @@
     } catch (e) {}
   }
 
+  // Coin-style ding that climbs a semitone per streak (caps one octave up),
+  // so a run of correct answers audibly "levels up"
   function playCorrectSound() {
-    playTone(523, 0.12, 'sine');
-    setTimeout(function () { playTone(659, 0.15, 'sine'); }, 80);
+    var lift = Math.pow(2, Math.min(session.streak, 12) / 12);
+    playTone(784 * lift, 0.08, 'square', 0.05);
+    setTimeout(function () { playTone(1175 * lift, 0.22, 'square', 0.05); }, 70);
+    setTimeout(function () { playTone(2349 * lift, 0.18, 'sine', 0.04); }, 140);
   }
 
+  // Gentle descending "uh-oh" — encouraging, not a punishment buzz
   function playWrongSound() {
-    playTone(200, 0.25, 'triangle');
+    playTone(311, 0.16, 'triangle', 0.12);
+    setTimeout(function () { playTone(233, 0.3, 'triangle', 0.12, 180); }, 140);
   }
 
+  // Rising fanfare arpeggio capped with a full chord
   function playMasterySound() {
-    playTone(523, 0.1, 'sine');
-    setTimeout(function () { playTone(659, 0.1, 'sine'); }, 100);
-    setTimeout(function () { playTone(784, 0.1, 'sine'); }, 200);
-    setTimeout(function () { playTone(1047, 0.25, 'sine'); }, 300);
+    playTone(523, 0.12, 'square', 0.06);
+    setTimeout(function () { playTone(659, 0.12, 'square', 0.06); }, 90);
+    setTimeout(function () { playTone(784, 0.12, 'square', 0.06); }, 180);
+    setTimeout(function () {
+      playTone(1047, 0.5, 'square', 0.06);
+      playTone(1319, 0.5, 'sine', 0.05);
+      playTone(1568, 0.5, 'sine', 0.04);
+    }, 270);
   }
 
+  // Upward sweep into a sparkle chime
   function playStreakSound() {
-    playTone(440, 0.1, 'sine');
-    setTimeout(function () { playTone(554, 0.1, 'sine'); }, 100);
-    setTimeout(function () { playTone(659, 0.2, 'sine'); }, 200);
+    playTone(440, 0.35, 'sawtooth', 0.05, 1760);
+    setTimeout(function () { playTone(1760, 0.3, 'sine', 0.08); }, 300);
+    setTimeout(function () { playTone(2217, 0.35, 'sine', 0.06); }, 380);
   }
 
   // --- Background Music ---
-  var bgMusic = { current: null, nodes: null, fadeInterval: null };
+  var bgMusic = { current: null, nodes: null };
 
   function addOsc(ctx, dest, type, freq, gainVal) {
     var osc = ctx.createOscillator();
@@ -69,10 +82,10 @@
     return { osc: osc, gain: gain };
   }
 
-  function playPluck(ctx, dest, freq, gainVal, duration) {
+  function playPluck(ctx, dest, freq, gainVal, duration, type) {
     var osc = ctx.createOscillator();
     var g = ctx.createGain();
-    osc.type = 'sine';
+    osc.type = type || 'sine';
     osc.frequency.value = freq;
     g.gain.setValueAtTime(gainVal, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
@@ -113,6 +126,7 @@
         if (data && data.settings && data.settings.muted) return;
         var freq = twinkleNotes[Math.floor(Math.random() * twinkleNotes.length)];
         playPluck(ctx, master, freq, 0.03, 2);
+        if (Math.random() < 0.3) playPluck(ctx, master, freq * 1.5, 0.018, 2);
       }, 1500 + Math.random() * 2000);
 
       return { oscs: [drone.osc, drone2.osc], intervals: [twinkleInterval], fadeIn: 2 };
@@ -121,30 +135,25 @@
 
   function startGameplayMusic() {
     startMusicTrack('gameplay', function (ctx, master) {
-      // Steady low pulse with a gentle rhythmic LFO on its gain
-      var bass = addOsc(ctx, master, 'triangle', 82.4, 0.035);
-      var lfo = ctx.createOscillator();
-      var lfoGain = ctx.createGain();
-      lfo.type = 'sine';
-      lfo.frequency.value = 0.5;
-      lfoGain.gain.value = 0.015;
-      lfo.connect(lfoGain);
-      lfoGain.connect(bass.gain.gain);
-      lfo.start();
+      // Soft pad underneath
+      var pad = addOsc(ctx, master, 'sine', 220, 0.015);
 
-      // Soft pad
-      var pad = addOsc(ctx, master, 'sine', 220, 0.02);
-
-      // Melodic movement — pentatonic notes
-      var melodyNotes = [330, 392, 440, 523, 587];
-      var noteIndex = 0;
-      var melodyInterval = setInterval(function () {
+      // Bouncy 120bpm step sequencer: eighth-note bassline, an E-minor
+      // pentatonic riff on top, and a tick on the off-beats
+      var bassLine = [82.4, 0, 82.4, 123.5, 98, 0, 98, 123.5];
+      var riff = [330, 0, 392, 440, 0, 494, 0, 587, 494, 0, 440, 392, 330, 0, 392, 0];
+      var step = 0;
+      var stepInterval = setInterval(function () {
         if (data && data.settings && data.settings.muted) return;
-        playPluck(ctx, master, melodyNotes[noteIndex % melodyNotes.length], 0.025, 1.5);
-        noteIndex++;
-      }, 2000);
+        var b = bassLine[step % bassLine.length];
+        if (b) playPluck(ctx, master, b, 0.05, 0.22, 'triangle');
+        var m = riff[step % riff.length];
+        if (m) playPluck(ctx, master, m, 0.022, 0.3, 'square');
+        if (step % 2 === 1) playPluck(ctx, master, 6000, 0.006, 0.05, 'square');
+        step++;
+      }, 250);
 
-      return { oscs: [bass.osc, lfo, pad.osc], intervals: [melodyInterval], fadeIn: 1.5 };
+      return { oscs: [pad.osc], intervals: [stepInterval], fadeIn: 1 };
     });
   }
 
