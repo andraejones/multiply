@@ -251,9 +251,25 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (!decayedResurfaces) fail('decayed fact 7x8 never picked in 25 sandbox problems');
   else ok('decayed fact resurfaces in practice rotation');
   await page.click('#end-btn');
-  await page.evaluate(() => localStorage.removeItem('multiply-trainer'));
-  await page.reload();
   await page.waitForTimeout(200);
+  await page.click('#home-btn');
+
+  // Reset flow uses an in-app modal (no native confirm)
+  await page.click('.transfer-section summary');
+  await page.click('#reset-btn');
+  if (!(await page.locator('#reset-modal').isVisible())) fail('reset modal did not open');
+  else ok('reset modal opens');
+  await page.click('#reset-cancel-btn');
+  const streakAfterCancel = await page.locator('#daily-streak').textContent();
+  if (await page.locator('#reset-modal').isVisible()) fail('reset modal still open after cancel');
+  else if (!streakAfterCancel.startsWith('1')) fail('progress lost after cancel: ' + streakAfterCancel);
+  else ok('cancel closes modal and keeps progress');
+  await page.click('#reset-btn');
+  await page.click('#reset-confirm-btn');
+  const streakAfterReset = await page.locator('#daily-streak').textContent();
+  if (await page.locator('#reset-modal').isVisible()) fail('reset modal still open after confirm');
+  else if (!streakAfterReset.startsWith('0')) fail('progress not reset: ' + streakAfterReset);
+  else ok('confirm resets progress');
 
   if (errors.length) fail('console/page errors: ' + JSON.stringify(errors));
   else ok('no console or page errors');

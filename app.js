@@ -1547,14 +1547,35 @@
     endSession();
   });
 
-  // Reset progress
+  // Reset progress (in-app confirmation modal)
+  var resetModal = document.getElementById('reset-modal');
+
+  function closeResetModal() {
+    resetModal.style.display = 'none';
+  }
+
   document.getElementById('reset-btn').addEventListener('click', function () {
-    if (confirm('Reset ALL progress? This cannot be undone.')) {
-      data = defaults();
-      initFacts();
-      saveData();
-      renderHome();
-    }
+    resetModal.style.display = '';
+    // Focus the safe choice so Enter/Space can't wipe progress by accident
+    document.getElementById('reset-cancel-btn').focus();
+  });
+
+  document.getElementById('reset-cancel-btn').addEventListener('click', closeResetModal);
+
+  document.getElementById('reset-confirm-btn').addEventListener('click', function () {
+    data = defaults();
+    initFacts();
+    saveData();
+    renderHome();
+    closeResetModal();
+  });
+
+  resetModal.addEventListener('click', function (e) {
+    if (e.target === resetModal) closeResetModal();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && resetModal.style.display !== 'none') closeResetModal();
   });
 
   // History navigation
