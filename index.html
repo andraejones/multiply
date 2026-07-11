@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0B0D1A">
   <title>Multiply — Times Table Trainer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
@@ -49,7 +51,7 @@
       </div>
     </div>
 
-    <button id="mute-btn" class="mute-btn" title="Toggle sound">🔊</button>
+    <button id="mute-btn" class="mute-btn" title="Toggle sound" aria-label="Toggle sound">🔊</button>
 
     <button id="start-btn" class="primary-btn">Start Game</button>
 
@@ -101,23 +103,30 @@
     <div class="progress-section">
       <h2>Progress</h2>
       <table id="progress-grid"></table>
+      <div class="mastery-legend">
+        <span class="legend-item"><span class="legend-dot mastery-bronze"></span>Learning</span>
+        <span class="legend-item"><span class="legend-dot mastery-silver"></span>Almost</span>
+        <span class="legend-item"><span class="legend-dot mastery-gold"></span>Mastered</span>
+      </div>
     </div>
 
-    <div class="transfer-section">
-      <h2>Transfer Progress</h2>
-      <button id="export-btn" class="secondary-btn">Export Code</button>
-      <div id="export-area" style="display:none;">
-        <textarea id="export-code" readonly rows="3"></textarea>
-        <button id="copy-btn" class="secondary-btn">Copy Code</button>
-        <p id="copy-msg" class="transfer-msg"></p>
+    <details class="transfer-section">
+      <summary>Transfer Progress</summary>
+      <div class="transfer-body">
+        <button id="export-btn" class="secondary-btn">Export Code</button>
+        <div id="export-area" style="display:none;">
+          <textarea id="export-code" readonly rows="3"></textarea>
+          <button id="copy-btn" class="secondary-btn">Copy Code</button>
+          <p id="copy-msg" class="transfer-msg"></p>
+        </div>
+        <div class="transfer-import">
+          <textarea id="import-code" rows="3" placeholder="Paste transfer code here"></textarea>
+          <button id="import-btn" class="secondary-btn">Import Code</button>
+          <p id="import-msg" class="transfer-msg"></p>
+        </div>
+        <button id="reset-btn" class="danger-btn">Reset All Progress</button>
       </div>
-      <div class="transfer-import">
-        <textarea id="import-code" rows="3" placeholder="Paste transfer code here"></textarea>
-        <button id="import-btn" class="secondary-btn">Import Code</button>
-        <p id="import-msg" class="transfer-msg"></p>
-      </div>
-      <button id="reset-btn" class="danger-btn">Reset All Progress</button>
-    </div>
+    </details>
   </section>
 
   <!-- PRACTICE CONFIG SCREEN -->

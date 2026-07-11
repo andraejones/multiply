@@ -27,14 +27,27 @@ body {
   justify-content: center;
   padding: 16px;
   overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Starfield background */
+:focus-visible {
+  outline: 3px solid rgba(167,139,250,0.7);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(167,139,250,0.4);
+}
+
+/* Starfield background (carries the nebula glow so it stays fixed under scroll) */
 #star-field {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: -1;
+  background:
+    radial-gradient(1100px 700px at 50% -15%, rgba(124,58,237,0.22), transparent 60%),
+    radial-gradient(900px 600px at 85% 110%, rgba(96,165,250,0.1), transparent 60%);
 }
 
 .star {
@@ -75,6 +88,7 @@ section {
   max-width: 480px;
   padding: 20px 0;
   gap: 20px;
+  position: relative;
 }
 
 section.active {
@@ -84,7 +98,12 @@ section.active {
 h1 {
   font-size: 2.5rem;
   font-weight: 900;
-  color: var(--primary);
+  letter-spacing: -0.5px;
+  background: linear-gradient(120deg, #C4B5FD 10%, var(--primary) 50%, #60A5FA 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--primary); /* fallback if background-clip: text is unsupported */
 }
 
 h2 {
@@ -121,7 +140,7 @@ h2 {
 
 .level-bar {
   height: 100%;
-  background: var(--primary);
+  background: linear-gradient(90deg, var(--primary-dark), var(--primary));
   border-radius: 6px;
   transition: width 0.4s ease;
 }
@@ -165,6 +184,7 @@ h2 {
 .stat-value {
   font-size: 1.5rem;
   font-weight: 900;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-box.big .stat-value {
@@ -210,6 +230,9 @@ h2 {
 }
 
 .mute-btn {
+  position: absolute;
+  top: 20px;
+  right: 4px;
   background: none;
   border: none;
   font-size: 1.5rem;
@@ -228,12 +251,15 @@ h2 {
   font-size: 1.25rem;
   font-weight: 900;
   padding: 14px 40px;
+  width: 100%;
+  max-width: 320px;
   background: var(--primary);
   color: #fff;
   border: none;
   border-radius: 16px;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
+  box-shadow: 0 4px 20px rgba(124,58,237,0.35);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 
 .primary-btn:active {
@@ -254,11 +280,44 @@ h2 {
   transition: all 0.15s;
 }
 
+.secondary-btn:active {
+  background: rgba(167,139,250,0.2);
+}
+
+@media (hover: hover) {
+  .primary-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 26px rgba(124,58,237,0.5);
+  }
+  .secondary-btn:hover,
+  .timer-buttons button:not(.selected):hover,
+  .fact-toggle:not(.selected):hover {
+    background: rgba(167,139,250,0.12);
+  }
+  .danger-btn:hover,
+  .end-btn:hover {
+    background: rgba(248,113,113,0.12);
+  }
+  .numpad-btn:hover {
+    background: rgba(167,139,250,0.25);
+  }
+  #numpad-submit:hover {
+    background: var(--primary-dark);
+  }
+}
+
 /* Home nav row */
 .home-nav-row {
   display: flex;
   gap: 12px;
   justify-content: center;
+  width: 100%;
+  max-width: 320px;
+}
+
+.home-nav-row .secondary-btn {
+  flex: 1;
+  padding: 12px 8px;
 }
 
 /* End session button */
@@ -311,13 +370,47 @@ h2 {
   align-items: center;
 }
 
-/* Transfer section */
+/* Transfer section (collapsible) */
 .transfer-section {
   width: 100%;
+  background: var(--card-bg);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 16px 20px;
+}
+
+.transfer-section summary {
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.7);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.transfer-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.transfer-section summary::after {
+  content: '\25BE';
+  color: var(--primary);
+  transition: transform 0.2s;
+}
+
+.transfer-section[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.transfer-body {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  margin-top: 16px;
 }
 
 .transfer-section textarea {
@@ -385,6 +478,28 @@ h2 {
   cursor: default;
 }
 
+.mastery-legend {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  margin-top: 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.55);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
 .mastery-none { background: var(--mastery-none); color: rgba(255,255,255,0.3); }
 .mastery-bronze { background: var(--mastery-bronze); color: #0B0D1A; }
 .mastery-silver { background: var(--mastery-silver); color: #0B0D1A; }
@@ -399,10 +514,15 @@ h2 {
   font-size: 1.5rem;
   font-weight: 900;
   gap: 8px;
+  background: var(--card-bg);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 10px 14px;
 }
 
 #timer-display {
   color: var(--primary);
+  font-variant-numeric: tabular-nums;
 }
 
 #best-streak-display {
@@ -411,10 +531,12 @@ h2 {
 }
 
 .problem {
-  font-size: 3.5rem;
+  font-size: clamp(3.25rem, 16vw, 4rem);
   font-weight: 900;
-  margin: 20px 0;
+  margin: 12px 0;
   min-height: 60px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 32px rgba(167,139,250,0.35);
 }
 
 .answer-area {
@@ -443,6 +565,11 @@ h2 {
 #answer-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+#answer-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(167,139,250,0.18);
 }
 
 #numpad {
@@ -510,9 +637,16 @@ h2 {
 
 /* Summary screen */
 .summary-stats {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   width: 100%;
+}
+
+@media (max-width: 440px) {
+  .summary-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .summary-message {
@@ -661,6 +795,8 @@ h2 {
   position: fixed;
   inset: 0;
   background: rgba(45, 43, 85, 0.85);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   z-index: 100;
   display: flex;
   align-items: center;
@@ -833,6 +969,7 @@ h2 {
   font-weight: 900;
   color: var(--primary);
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 40px rgba(167,139,250,0.4);
 }
 
 .challenge-config-summary {
@@ -856,4 +993,17 @@ h2 {
   40% { transform: translateX(8px); }
   60% { transform: translateX(-6px); }
   80% { transform: translateX(6px); }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .star {
+    animation: none;
+    opacity: var(--lo);
+  }
 }
