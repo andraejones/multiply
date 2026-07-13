@@ -134,6 +134,13 @@ h2 {
   margin-top: -12px;
 }
 
+.build-info {
+  margin-top: 20px;
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.3);
+  text-align: center;
+}
+
 /* Player level */
 .player-level-widget {
   text-align: center;

@@ -14,6 +14,19 @@
     return audioCtx;
   }
 
+  // iOS silences Web Audio whenever the ring/silent switch is on, but not
+  // HTML media playback. Looping a silent <audio> track claims the
+  // "playback" audio session so the game stays audible with the switch on.
+  var SILENT_WAV = 'data:audio/wav;base64,UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUAGAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+  var silentAudio = null;
+  function getSilentAudio() {
+    if (!silentAudio) {
+      silentAudio = new Audio(SILENT_WAV);
+      silentAudio.loop = true;
+    }
+    return silentAudio;
+  }
+
   function playTone(freq, duration, type, vol, endFreq) {
     if (data && data.settings && data.settings.muted) return;
     try {
@@ -195,16 +208,55 @@
     }
   }
 
-  function unlockAudio() {
-    audioUnlocked = true;
+  function removeUnlockListeners() {
     document.removeEventListener('pointerdown', unlockAudio, true);
+    document.removeEventListener('touchend', unlockAudio, true);
     document.removeEventListener('keydown', unlockAudio, true);
+  }
+
+  function unlockAudio() {
+    try {
+      var ctx = getAudioCtx();
+      // WebKit only honors the unlock if a source starts inside the gesture;
+      // resume() alone is not always enough.
+      var buf = ctx.createBuffer(1, 1, 22050);
+      var src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      if (!(data && data.settings && data.settings.muted)) {
+        getSilentAudio().play().catch(function () {});
+      }
+      // iOS can reject an unlock attempted on pointerdown (touchstart), so
+      // keep listening until the context actually reaches "running".
+      if (ctx.state === 'running') {
+        removeUnlockListeners();
+      } else {
+        var p = ctx.resume();
+        if (p && p.then) p.then(removeUnlockListeners, function () {});
+      }
+    } catch (e) {}
+    audioUnlocked = true;
     var activeSection = document.querySelector('section.active');
     if (activeSection) updateBgMusic(activeSection.id);
   }
 
   document.addEventListener('pointerdown', unlockAudio, true);
+  document.addEventListener('touchend', unlockAudio, true);
   document.addEventListener('keydown', unlockAudio, true);
+
+  // Returning from the lock screen or a phone call leaves the context
+  // suspended (or "interrupted" on iOS); nudge it back awake.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !audioUnlocked) return;
+    try {
+      var ctx = getAudioCtx();
+      if (ctx.state !== 'running') ctx.resume();
+    } catch (e) {}
+    if (silentAudio && silentAudio.paused && !(data && data.settings && data.settings.muted)) {
+      silentAudio.play().catch(function () {});
+    }
+  });
 
   // --- Challenge Mode ---
   var CHALLENGE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -1488,7 +1540,9 @@
     saveData();
     if (data.settings.muted) {
       stopBgMusic();
+      if (silentAudio) silentAudio.pause();
     } else {
+      if (audioUnlocked) getSilentAudio().play().catch(function () {});
       updateBgMusic(document.querySelector('section.active').id);
     }
   });
@@ -1851,6 +1905,14 @@
     });
   });
 
+  document.getElementById('challenge-text-code-btn').addEventListener('click', function () {
+    var code = document.getElementById('challenge-show-code').textContent;
+    var url = location.origin + location.pathname + '?code=' + code;
+    var message = 'Join my Multiply! challenge! Tap to play: ' + url;
+    // iOS and Android both accept the "?&body=" form of the sms: URI
+    location.href = 'sms:?&body=' + encodeURIComponent(message);
+  });
+
   document.getElementById('challenge-code-input').addEventListener('input', function () {
     var raw = this.value.replace(/[^a-zA-Z2-9]/g, '').toUpperCase().slice(0, 12);
     var formatted = '';
@@ -1981,6 +2043,16 @@
     renderHome();
     showScreen('home');
     generateStars();
+
+    // Arriving via a shared link: pre-fill the code and open the join screen
+    var sharedCode = new URLSearchParams(location.search).get('code');
+    if (sharedCode) {
+      history.replaceState(null, '', location.pathname);
+      var input = document.getElementById('challenge-code-input');
+      input.value = sharedCode;
+      input.dispatchEvent(new Event('input'));
+      showScreen('challenge');
+    }
   }
 
   init();
