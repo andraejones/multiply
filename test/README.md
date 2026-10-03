@@ -10,6 +10,14 @@ Headless end-to-end test that drives the real app in Chromium and checks:
 - Export / import transfer-code round-trip
 - Mastery decay: 7-day grace period, partial and full decay, and that
   decayed facts re-enter the practice rotation
+- Rounds ended early don't count (fact progress rolls back); a full round,
+  played on a fake clock, does
+- Optional player name: greeting, personalized summary, persistence
+- Shared history links: the name isn't readable in the link, the recipient
+  sees the sender's name, and edited links are rejected
+- Sound suspends when the app loses focus or is hidden
+- Regressions: double-submit, stale round timers, lapsed daily streak,
+  truncated transfer codes, background-music races
 
 ## Run
 

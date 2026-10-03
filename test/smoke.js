@@ -1,7 +1,8 @@
 // End-to-end smoke test for Multiply. Drives the real app in headless
 // Chromium via playwright-core: practice flow, retype mode, summary stats,
-// history, sandbox, challenge codes, export/import, mastery decay, and
-// regressions for round-timer, persistence, and music races.
+// history, sandbox, challenge codes, export/import, mastery decay, player
+// name, shared history links, focus-aware sound, and regressions for
+// round-timer, persistence, and music races.
 //
 // Run:  cd test && npm install && npm test
 // Pass --shots to also save screenshots (home/practice/summary) next to
@@ -358,6 +359,16 @@ function ok(msg) { console.log('ok: ' + msg); }
   await fpage.clock.install();
   await fpage.goto(APP);
   await fpage.waitForTimeout(300);
+  // The name is optional: no prompt, just an invitation on the home screen
+  const noName = (await fpage.locator('#name-btn').textContent()).trim();
+  if (!noName.startsWith('Add your name') || await fpage.locator('#name-modal').isVisible()) fail('name should be optional: ' + noName);
+  else ok('name is optional (home shows "' + noName + '")');
+  await fpage.click('#name-btn');
+  await fpage.fill('#name-input', '  Maya   ');
+  await fpage.click('#name-save-btn');
+  const greet = (await fpage.locator('#name-btn').textContent()).trim();
+  if (!greet.startsWith('Hi, Maya!')) fail('name greeting: ' + greet);
+  else ok('name saved and greets the player: ' + greet);
   await fpage.click('#timer-buttons button[data-minutes="1"]');
   await fpage.click('#start-btn');
   const fq = (await fpage.locator('#problem-display').textContent()).match(/(\d+)\s*×\s*(\d+)/);
@@ -367,6 +378,8 @@ function ok(msg) { console.log('ok: ' + msg); }
   const fullMsg = await fpage.locator('#summary-message').textContent();
   if (await fpage.locator('section#summary.active').count() !== 1 || fullMsg.includes("won't count")) fail('full round did not finish normally: ' + fullMsg);
   else ok('full round ends on its own timer');
+  if (!fullMsg.includes(', Maya!')) fail('summary not personalized: ' + fullMsg);
+  else ok('summary cheers the player by name');
   await fpage.click('#home-btn');
   const fullStreak = (await fpage.locator('#daily-streak').textContent()).trim();
   if (!fullStreak.startsWith('1')) fail('full round did not count toward daily streak: ' + fullStreak);
@@ -375,10 +388,100 @@ function ok(msg) { console.log('ok: ' + msg); }
   await fpage.waitForTimeout(200);
   if (!(await fpage.locator('#last-round-btn').isVisible())) fail('last round stats lost on reload');
   else ok('last round stats saved and survive reload');
+  if ((await fpage.locator('#name-btn').textContent()).trim() !== 'Hi, Maya! 👋') fail('name lost on reload');
+  else ok('name survives reload');
   await fpage.click('#history-btn');
   if (await fpage.locator('.history-summary-card').count() !== 2) fail('full round missing from history');
   else ok('full round recorded in history');
+  if ((await fpage.locator('#history-title').textContent()) !== "Maya's History") fail('history title not personalized');
+  else ok('history titled with the player\'s name');
+
+  // Share one day of history by link. The name must not be readable in the
+  // link, even after undoing the base64.
+  const myRow = (await fpage.locator('#history-list .history-day').first().textContent()).replace('📲', '').trim();
+  await fpage.click('#history-list .history-day-share');
+  if (!(await fpage.locator('#share-modal').isVisible())) fail('share modal did not open');
+  const link = await fpage.locator('#share-link').inputValue();
+  const linkCode = new URL(link).searchParams.get('history');
+  const linkBytes = linkCode && Buffer.from(linkCode, 'base64url');
+  if (!linkCode || /maya/i.test(link) || /maya/i.test(linkBytes.toString('latin1'))) fail('history link missing or exposes the name: ' + link);
+  else ok('history link hides the name (' + linkCode.length + ' chars)');
+  await fpage.click('#share-close-btn');
+  await fpage.click('#history-share-week-btn');
+  const weekText = (await fpage.locator('#share-modal-text').textContent()).trim();
+  if (!weekText.startsWith('Last 7 days')) fail('last-7-days share: ' + weekText);
+  else ok('last 7 days can be shared: ' + weekText);
   await fpage.close();
+
+  // Opening the link in someone else's app shows the shared history with
+  // the sender's name, without touching the recipient's own data
+  const rpage = await browser.newPage();
+  rpage.on('pageerror', (e) => errors.push(e.message));
+  await rpage.goto(APP + '?history=' + linkCode);
+  await rpage.waitForTimeout(300);
+  const shared = {
+    active: await rpage.locator('section#shared-history.active').count(),
+    title: await rpage.locator('#shared-title').textContent(),
+    by: await rpage.locator('#shared-by').textContent(),
+    row: (await rpage.locator('#shared-history-list .history-day').first().textContent()).trim(),
+    rows: await rpage.locator('#shared-history-list .history-day').count(),
+    query: await rpage.evaluate(() => location.search),
+  };
+  if (shared.active !== 1 || shared.title !== "Maya's History" || shared.by !== 'Shared by Maya' || shared.rows !== 1 || shared.row !== myRow || shared.query) fail('shared history view: ' + JSON.stringify(shared) + ' expected row ' + myRow);
+  else ok('shared link opens the history with the sender\'s name: ' + shared.row);
+  const recipientHistory = await rpage.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('multiply-trainer')).history).length);
+  if (recipientHistory !== 0) fail('shared history leaked into the recipient\'s own history');
+  else ok('shared history is view-only for the recipient');
+  await rpage.click('#shared-history-home-btn');
+  if (await rpage.locator('section#home.active').count() !== 1) fail('shared view did not return home');
+  else ok('shared view returns to the recipient\'s home');
+  // An edited link (e.g. trying to pass off someone else's history) is refused
+  const mid = Math.floor(linkCode.length / 2);
+  const tampered = linkCode.slice(0, mid) + (linkCode[mid] === 'A' ? 'B' : 'A') + linkCode.slice(mid + 1);
+  await rpage.goto(APP + '?history=' + tampered);
+  await rpage.waitForTimeout(200);
+  const tamperMsg = await rpage.locator('#shared-by').textContent();
+  if (!/broken or was changed/.test(tamperMsg) || await rpage.locator('#shared-history-list .history-day').count()) fail('tampered link accepted: ' + tamperMsg);
+  else ok('edited history link is rejected');
+  await rpage.close();
+
+  // Sound pauses whenever the app is hidden or loses focus
+  const apage = await browser.newPage();
+  await apage.addInitScript(() => {
+    const Orig = window.AudioContext;
+    window.AudioContext = class extends Orig {
+      constructor(...a) { super(...a); window.__ctx = this; }
+    };
+  });
+  await apage.clock.install();
+  await apage.goto(APP);
+  await apage.waitForTimeout(300);
+  await apage.click('#start-btn');
+  await apage.waitForTimeout(300);
+  const ctxState = () => apage.waitForTimeout(150).then(() => apage.evaluate(() => window.__ctx && window.__ctx.state));
+  const setHidden = (hidden) => apage.evaluate((h) => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (h ? 'hidden' : 'visible') });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, hidden);
+  const focusStates = { start: await ctxState() };
+  await apage.evaluate(() => window.dispatchEvent(new Event('blur')));
+  focusStates.blurred = await ctxState();
+  // A question timing out while unfocused plays the miss sound; that must
+  // not wake the audio back up
+  await apage.clock.runFor(11000);
+  if (!(await apage.locator('#feedback.wrong').count())) fail('question did not time out while unfocused');
+  focusStates.answeredBlurred = await ctxState();
+  await apage.evaluate(() => window.dispatchEvent(new Event('focus')));
+  focusStates.refocused = await ctxState();
+  await setHidden(true);
+  focusStates.hidden = await ctxState();
+  await setHidden(false);
+  focusStates.visible = await ctxState();
+  const expected = { start: 'running', blurred: 'suspended', answeredBlurred: 'suspended', refocused: 'running', hidden: 'suspended', visible: 'running' };
+  if (JSON.stringify(focusStates) !== JSON.stringify(expected)) fail('audio focus handling: ' + JSON.stringify(focusStates));
+  else ok('sound pauses when the app loses focus or is hidden, resumes on return');
+  await apage.close();
 
   // Background music: ending a round and instantly replaying must leave only
   // the gameplay track running (each track runs one 50ms sequencer interval)

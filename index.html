@@ -27,6 +27,7 @@
   <section id="home" class="active">
     <h1>Multiply!</h1>
     <p class="subtitle">Times Table Trainer</p>
+    <button id="name-btn" class="name-btn">Add your name ✏️</button>
 
     <div class="player-level-widget">
       <div id="player-level" class="player-level"></div>
@@ -135,7 +136,7 @@
       </div>
     </details>
 
-    <p class="build-info">Build 2026-10-03 08:37</p>
+    <p class="build-info">Build 2026-10-03 17:33</p>
   </section>
 
   <!-- PRACTICE CONFIG SCREEN -->
@@ -178,10 +179,21 @@
 
   <!-- HISTORY SCREEN -->
   <section id="history">
-    <h1>History</h1>
+    <h1 id="history-title">History</h1>
     <div id="history-summary" class="history-summary"></div>
+    <button id="history-share-week-btn" class="secondary-btn" style="display:none;">📲 Share Last 7 Days</button>
     <div id="history-list" class="history-list"></div>
     <button id="history-back-btn" class="secondary-btn">Back Home</button>
+  </section>
+
+  <!-- SHARED HISTORY (opened from a ?history= link) -->
+  <section id="shared-history">
+    <h1 id="shared-title">Shared History</h1>
+    <p id="shared-by" class="shared-by"></p>
+    <p id="shared-on" class="subtitle"></p>
+    <div id="shared-history-summary" class="history-summary"></div>
+    <div id="shared-history-list" class="history-list"></div>
+    <button id="shared-history-home-btn" class="primary-btn">Open My Multiply!</button>
   </section>
 
   <!-- WEAKEST FACTS SCREEN -->
@@ -348,6 +360,37 @@
       <div class="modal-buttons">
         <button id="end-cancel-btn" class="secondary-btn">Keep Playing</button>
         <button id="end-confirm-btn" class="danger-btn">End Round</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NAME MODAL (optional player name) -->
+  <div id="name-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="name-modal-title">
+      <div class="modal-emoji">🧑‍🚀</div>
+      <h2 id="name-modal-title">What's your name?</h2>
+      <p class="modal-text">Totally optional! We'll cheer you on by name, and it shows on history you share.</p>
+      <input id="name-input" class="text-input" type="text" maxlength="20" autocomplete="off" placeholder="Your name">
+      <div class="modal-buttons">
+        <button id="name-cancel-btn" class="secondary-btn">Cancel</button>
+        <button id="name-save-btn" class="secondary-btn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHARE HISTORY MODAL -->
+  <div id="share-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
+      <div class="modal-emoji">📲</div>
+      <h2 id="share-modal-title">Share History</h2>
+      <p id="share-modal-text" class="modal-text"></p>
+      <p id="share-name-hint" class="modal-text share-name-hint">Tip: add your name on the home screen so whoever opens the link knows it's yours.</p>
+      <input id="share-link" class="text-input share-link" type="text" readonly aria-label="Share link">
+      <p id="share-msg" class="transfer-msg"></p>
+      <div class="modal-buttons">
+        <button id="share-text-btn" class="secondary-btn share-main-btn">Text Link</button>
+        <button id="share-copy-btn" class="secondary-btn">Copy Link</button>
+        <button id="share-close-btn" class="secondary-btn">Close</button>
       </div>
     </div>
   </div>

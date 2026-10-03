@@ -9,6 +9,12 @@
   // --- Sound Effects ---
   var audioCtx = null;
   var audioUnlocked = false;
+  // Sound only plays while the app is visible and focused. Assume focus at
+  // load (a blur event corrects it); any tap or key press confirms it.
+  var windowFocused = true;
+  function appHasFocus() {
+    return !document.hidden && windowFocused;
+  }
   function getAudioCtx() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     return audioCtx;
@@ -29,6 +35,7 @@
 
   function playTone(freq, duration, type, vol, endFreq) {
     if (data && data.settings && data.settings.muted) return;
+    if (!appHasFocus()) return;
     try {
       var ctx = getAudioCtx();
       if (ctx.state === 'suspended') ctx.resume();
@@ -213,7 +220,7 @@
     if (!next || (data && data.settings && data.settings.muted)) return;
     try {
       var ctx = getAudioCtx();
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx.state === 'suspended' && appHasFocus()) ctx.resume();
       var duck = ctx.createGain();
       duck.connect(ctx.destination);
       var master = ctx.createGain();
@@ -351,7 +358,7 @@
     if (!audioUnlocked) return;
     if (screen === 'practice') {
       startGameplayMusic();
-    } else if (screen === 'home' || screen === 'practice-config' || screen === 'challenge' || screen === 'challenge-wait' || screen === 'summary') {
+    } else if (screen === 'home' || screen === 'practice-config' || screen === 'challenge' || screen === 'challenge-wait' || screen === 'summary' || screen === 'shared-history') {
       startAmbientMusic();
     }
   }
@@ -393,18 +400,44 @@
   document.addEventListener('touchend', unlockAudio, true);
   document.addEventListener('keydown', unlockAudio, true);
 
-  // Returning from the lock screen or a phone call leaves the context
-  // suspended (or "interrupted" on iOS); nudge it back awake.
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState !== 'visible' || !audioUnlocked) return;
+  // Silence everything (music, effects, the iOS keep-alive track) while the
+  // app is hidden or another window has focus. Coming back also wakes a
+  // context the lock screen or a phone call left suspended ("interrupted"
+  // on iOS).
+  function syncAudioFocus() {
+    if (!audioCtx) return;
     try {
-      var ctx = getAudioCtx();
-      if (ctx.state !== 'running') ctx.resume();
+      if (!appHasFocus()) {
+        if (audioCtx.state === 'running') audioCtx.suspend();
+        if (silentAudio) silentAudio.pause();
+        return;
+      }
+      if (!audioUnlocked) return;
+      if (audioCtx.state !== 'running') audioCtx.resume();
+      if (silentAudio && silentAudio.paused && !(data && data.settings && data.settings.muted)) {
+        silentAudio.play().catch(function () {});
+      }
     } catch (e) {}
-    if (silentAudio && silentAudio.paused && !(data && data.settings && data.settings.muted)) {
-      silentAudio.play().catch(function () {});
-    }
+  }
+
+  document.addEventListener('visibilitychange', syncAudioFocus);
+  window.addEventListener('pagehide', syncAudioFocus);
+  window.addEventListener('pageshow', syncAudioFocus);
+  window.addEventListener('blur', function () {
+    windowFocused = false;
+    syncAudioFocus();
   });
+  window.addEventListener('focus', function () {
+    windowFocused = true;
+    syncAudioFocus();
+  });
+  function confirmFocus() {
+    if (windowFocused) return;
+    windowFocused = true;
+    syncAudioFocus();
+  }
+  document.addEventListener('pointerdown', confirmFocus, true);
+  document.addEventListener('keydown', confirmFocus, true);
 
   // --- Challenge Mode ---
   var CHALLENGE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -607,7 +640,20 @@
       personalBest: 0,
       lastTitle: null,
       lastRound: null,
+      name: null,
     };
+  }
+
+  // Player names are optional: trimmed, single-spaced, at most 20 characters
+  var NAME_MAX = 20;
+  function cleanName(raw) {
+    var name = String(raw || '').replace(/[\u0000-\u001F\u007F]/g, '').replace(/\s+/g, ' ').trim();
+    return Array.from(name).slice(0, NAME_MAX).join('') || null;
+  }
+
+  // ", Maya" when a name is set, else "" (for "Great job, Maya!")
+  function nameSuffix() {
+    return data.name ? ', ' + data.name : '';
   }
 
   // --- LocalStorage ---
@@ -626,6 +672,7 @@
           personalBest: parsed.personalBest || 0,
           lastTitle: parsed.lastTitle || null,
           lastRound: parsed.lastRound || null,
+          name: cleanName(parsed.name),
         };
         // Migrate from 78-fact (canonical) to 144-fact format
         migrateToFullFacts();
@@ -1082,7 +1129,7 @@
         if (leveledUp) {
           queueCelebration(
             currentLevel.badge,
-            currentLevel.title + '!',
+            currentLevel.title + nameSuffix() + '!',
             { particleCount: 120, spread: 100, startVelocity: 35 }
           );
         }
@@ -1323,10 +1370,11 @@
     document.getElementById('summary-speed').textContent = sessionAvgSpeed() + 's';
 
     var msg;
-    if (accuracy >= 95) msg = 'Outstanding! You\'re a multiplication master!';
-    else if (accuracy >= 80) msg = 'Great job! Keep it up!';
-    else if (accuracy >= 60) msg = 'Good effort! Practice makes perfect!';
-    else msg = 'Keep going! Every practice makes you stronger!';
+    var who = nameSuffix();
+    if (accuracy >= 95) msg = 'Outstanding' + who + '! You\'re a multiplication master!';
+    else if (accuracy >= 80) msg = 'Great job' + who + '! Keep it up!';
+    else if (accuracy >= 60) msg = 'Good effort' + who + '! Practice makes perfect!';
+    else msg = 'Keep going' + who + '! Every practice makes you stronger!';
 
     if (session.isNewBest) {
       msg = 'NEW PERSONAL BEST! ' + msg;
@@ -1401,75 +1449,263 @@
   }
 
   // --- History View ---
-  function renderHistory() {
-    var container = document.getElementById('history-list');
-    container.innerHTML = '';
-    var summaryEl = document.getElementById('history-summary');
-    summaryEl.innerHTML = '';
-
-    var allDates = Object.keys(data.history).sort().reverse();
-
-    if (allDates.length === 0) {
-      container.innerHTML = '<p style="text-align:center;color:rgba(255,255,255,0.5);font-weight:700;">No sessions yet. Start practicing!</p>';
-      return;
+  function historyCard(label, correct, total) {
+    var card = document.createElement('div');
+    card.className = 'history-summary-card';
+    var parts = [
+      ['history-summary-label', label],
+      ['history-summary-total', correct + ' / ' + total],
+      ['history-summary-accuracy', percent(correct, total) + '% correct'],
+    ];
+    for (var i = 0; i < parts.length; i++) {
+      var div = document.createElement('div');
+      div.className = parts[i][0];
+      div.textContent = parts[i][1];
+      card.appendChild(div);
     }
+    return card;
+  }
 
-    // Compute all-time totals
-    var allCorrect = 0, allTotal = 0;
-    for (var i = 0; i < allDates.length; i++) {
-      allCorrect += data.history[allDates[i]].correct;
-      allTotal += data.history[allDates[i]].total;
-    }
-    var allAccuracy = percent(allCorrect, allTotal);
-
-    // Compute last-7-days totals
-    var d = new Date(todayLocal() + 'T00:00:00');
-    d.setDate(d.getDate() - 6);
-    var cutoff = formatYMD(d);
-    var weekCorrect = 0, weekTotal = 0;
-    for (var i = 0; i < allDates.length; i++) {
-      if (allDates[i] >= cutoff) {
-        weekCorrect += data.history[allDates[i]].correct;
-        weekTotal += data.history[allDates[i]].total;
-      }
-    }
-    var weekAccuracy = percent(weekCorrect, weekTotal);
-
-    // Render summary cards
-    summaryEl.innerHTML =
-      '<div class="history-summary-card">' +
-        '<div class="history-summary-label">All Time</div>' +
-        '<div class="history-summary-total">' + allCorrect + ' / ' + allTotal + '</div>' +
-        '<div class="history-summary-accuracy">' + allAccuracy + '% correct</div>' +
-      '</div>' +
-      '<div class="history-summary-card">' +
-        '<div class="history-summary-label">Last 7 Days</div>' +
-        '<div class="history-summary-total">' + weekCorrect + ' / ' + weekTotal + '</div>' +
-        '<div class="history-summary-accuracy">' + weekAccuracy + '% correct</div>' +
-      '</div>';
-
-    var dates = allDates.slice(0, 30);
-
-    for (var i = 0; i < dates.length; i++) {
-      var date = dates[i];
-      var entry = data.history[date];
-      var accuracy = percent(entry.correct, entry.total);
-
+  // rows: [{ date, correct, total }]. onShare(date), when given, adds a
+  // share button to each row.
+  function renderHistoryRows(container, rows, onShare) {
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
       var div = document.createElement('div');
       div.className = 'history-day';
 
       var dateSpan = document.createElement('span');
       dateSpan.className = 'history-date';
-      dateSpan.textContent = formatDate(date);
+      dateSpan.textContent = formatDate(row.date);
 
       var statsSpan = document.createElement('span');
       statsSpan.className = 'history-stats';
-      statsSpan.innerHTML = entry.correct + '/' + entry.total + ' <span class="history-accuracy">' + accuracy + '%</span>';
+      statsSpan.textContent = row.correct + '/' + row.total + ' ';
+      var accSpan = document.createElement('span');
+      accSpan.className = 'history-accuracy';
+      accSpan.textContent = percent(row.correct, row.total) + '%';
+      statsSpan.appendChild(accSpan);
 
       div.appendChild(dateSpan);
       div.appendChild(statsSpan);
+      if (onShare) {
+        var btn = document.createElement('button');
+        btn.className = 'history-day-share';
+        btn.textContent = '📲';
+        btn.title = 'Share ' + formatDate(row.date);
+        btn.setAttribute('aria-label', 'Share ' + formatDate(row.date));
+        btn.dataset.date = row.date;
+        btn.addEventListener('click', function () { onShare(this.dataset.date); });
+        div.appendChild(btn);
+      }
       container.appendChild(div);
     }
+  }
+
+  function historyRow(date) {
+    return { date: date, correct: data.history[date].correct, total: data.history[date].total };
+  }
+
+  // Dates played in the last 7 days (today included), newest first
+  function lastWeekDates() {
+    var d = new Date(todayLocal() + 'T00:00:00');
+    d.setDate(d.getDate() - 6);
+    var cutoff = formatYMD(d);
+    return Object.keys(data.history).sort().reverse().filter(function (date) { return date >= cutoff; });
+  }
+
+  function renderHistory() {
+    document.getElementById('history-title').textContent = data.name ? data.name + '\'s History' : 'History';
+    var container = document.getElementById('history-list');
+    container.innerHTML = '';
+    var summaryEl = document.getElementById('history-summary');
+    summaryEl.innerHTML = '';
+    var weekDates = lastWeekDates();
+    document.getElementById('history-share-week-btn').style.display = weekDates.length ? '' : 'none';
+
+    var allDates = Object.keys(data.history).sort().reverse();
+
+    if (allDates.length === 0) {
+      container.innerHTML = '<p class="history-empty">No sessions yet. Start practicing!</p>';
+      return;
+    }
+
+    var allCorrect = 0, allTotal = 0;
+    for (var i = 0; i < allDates.length; i++) {
+      allCorrect += data.history[allDates[i]].correct;
+      allTotal += data.history[allDates[i]].total;
+    }
+    var weekCorrect = 0, weekTotal = 0;
+    for (var i = 0; i < weekDates.length; i++) {
+      weekCorrect += data.history[weekDates[i]].correct;
+      weekTotal += data.history[weekDates[i]].total;
+    }
+    summaryEl.appendChild(historyCard('All Time', allCorrect, allTotal));
+    summaryEl.appendChild(historyCard('Last 7 Days', weekCorrect, weekTotal));
+
+    renderHistoryRows(container, allDates.slice(0, 30).map(historyRow), function (date) {
+      openShareModal([date], formatDate(date));
+    });
+  }
+
+  // --- Shared History Links ---
+  // ?history=<code> carries the chosen days plus the player's name. The bytes
+  // are scrambled with a keystream seeded by their CRC-32, and the checksum is
+  // checked on open: the name can't be read off the link, and an edited link
+  // (say, one with a friend's name swapped in) is rejected.
+  var HISTORY_LINK_VERSION = 1;
+  var DAY_MS = 86400000;
+
+  function crc32(bytes) {
+    var crc = -1;
+    for (var i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i];
+      for (var j = 0; j < 8; j++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+    return (crc ^ -1) >>> 0;
+  }
+
+  function scrambleBytes(bytes, seed) {
+    var rng = mulberry32(seed ^ 0x5EED1E55);
+    return bytes.map(function (b) { return b ^ Math.floor(rng() * 256); });
+  }
+
+  // YYYY-MM-DD <-> whole days since CHALLENGE_EPOCH (calendar dates, so UTC)
+  function dayNumber(ymd) {
+    var p = ymd.split('-').map(Number);
+    return Math.round((Date.UTC(p[0], p[1] - 1, p[2]) - CHALLENGE_EPOCH) / DAY_MS);
+  }
+  function dayToYMD(n) {
+    var d = new Date(CHALLENGE_EPOCH + n * DAY_MS);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  }
+
+  function toBase64Url(bytes) {
+    return btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function fromBase64Url(str) {
+    var b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    return Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
+  }
+
+  // [version][shared-on day u16][name length][name UTF-8][day count]
+  // [per day: day u16, correct u16, total u16], scrambled, then CRC-32
+  function encodeHistoryLink(dates) {
+    var bytes = [HISTORY_LINK_VERSION];
+    function u16(n) { n = Math.max(0, Math.min(65535, n)); bytes.push(n >> 8, n & 0xFF); }
+    u16(dayNumber(todayLocal()));
+    var name = data.name ? Array.from(new TextEncoder().encode(data.name)) : [];
+    bytes.push(name.length);
+    bytes = bytes.concat(name);
+    bytes.push(dates.length);
+    for (var i = 0; i < dates.length; i++) {
+      var entry = data.history[dates[i]];
+      u16(dayNumber(dates[i]));
+      u16(entry.correct);
+      u16(entry.total);
+    }
+    var crc = crc32(bytes);
+    var out = scrambleBytes(bytes, crc);
+    out.push((crc >>> 24) & 0xFF, (crc >>> 16) & 0xFF, (crc >>> 8) & 0xFF, crc & 0xFF);
+    return toBase64Url(out);
+  }
+
+  // Returns { name, sharedOn, days: [{ date, correct, total }] } or null
+  function decodeHistoryLink(code) {
+    try {
+      var bytes = fromBase64Url(code);
+      if (bytes.length < 9) return null;
+      var crc = ((bytes[bytes.length - 4] << 24) | (bytes[bytes.length - 3] << 16) |
+        (bytes[bytes.length - 2] << 8) | bytes[bytes.length - 1]) >>> 0;
+      var plain = scrambleBytes(bytes.slice(0, -4), crc);
+      if (crc32(plain) !== crc) return null;
+
+      var pos = 0;
+      var u8 = function () {
+        if (pos >= plain.length) throw new Error('short');
+        return plain[pos++];
+      };
+      var u16 = function () { return u8() * 256 + u8(); };
+      if (u8() !== HISTORY_LINK_VERSION) return null;
+      var sharedOn = dayToYMD(u16());
+      var nameLen = u8();
+      if (pos + nameLen > plain.length) return null;
+      var name = cleanName(new TextDecoder().decode(new Uint8Array(plain.slice(pos, pos + nameLen))));
+      pos += nameLen;
+      var days = [];
+      for (var count = u8(); count > 0; count--) {
+        var row = { date: dayToYMD(u16()), correct: u16(), total: u16() };
+        if (row.correct > row.total) return null;
+        days.push(row);
+      }
+      if (pos !== plain.length) return null;
+      return { name: name, sharedOn: sharedOn, days: days };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function appLink(param, value) {
+    return location.origin + location.pathname + '?' + param + '=' + value;
+  }
+
+  // Opens the messages app with a prefilled text. iOS and Android both
+  // accept the "?&body=" form of the sms: URI.
+  function textMessage(message) {
+    location.href = 'sms:?&body=' + encodeURIComponent(message);
+  }
+
+  var shareModal = document.getElementById('share-modal');
+
+  function openShareModal(dates, label) {
+    var link = appLink('history', encodeHistoryLink(dates));
+    var correct = 0, total = 0;
+    for (var i = 0; i < dates.length; i++) {
+      correct += data.history[dates[i]].correct;
+      total += data.history[dates[i]].total;
+    }
+    document.getElementById('share-modal-text').textContent =
+      label + ': ' + correct + '/' + total + ' correct (' + percent(correct, total) + '%)';
+    document.getElementById('share-name-hint').style.display = data.name ? 'none' : '';
+    document.getElementById('share-link').value = link;
+    document.getElementById('share-msg').textContent = '';
+    shareModal.style.display = '';
+    document.getElementById('share-text-btn').focus();
+  }
+
+  function closeShareModal() {
+    shareModal.style.display = 'none';
+  }
+
+  function showSharedHistory(code) {
+    var shared = decodeHistoryLink(code);
+    var title = document.getElementById('shared-title');
+    var by = document.getElementById('shared-by');
+    var on = document.getElementById('shared-on');
+    var summaryEl = document.getElementById('shared-history-summary');
+    var list = document.getElementById('shared-history-list');
+    summaryEl.innerHTML = '';
+    list.innerHTML = '';
+    by.classList.toggle('shared-error', !shared);
+
+    if (!shared) {
+      title.textContent = 'Shared History';
+      by.textContent = 'This history link is broken or was changed, so it can\'t be shown.';
+      on.textContent = '';
+    } else {
+      title.textContent = shared.name ? shared.name + '\'s History' : 'Shared History';
+      by.textContent = shared.name ? 'Shared by ' + shared.name : 'Shared by a player who hasn\'t added a name';
+      on.textContent = 'Sent ' + formatDate(shared.sharedOn);
+      var correct = 0, total = 0;
+      for (var i = 0; i < shared.days.length; i++) {
+        correct += shared.days[i].correct;
+        total += shared.days[i].total;
+      }
+      summaryEl.appendChild(historyCard(shared.days.length === 1 ? '1 Day' : shared.days.length + ' Days', correct, total));
+      renderHistoryRows(list, shared.days, null);
+    }
+    showScreen('shared-history');
   }
 
   function formatDate(dateStr) {
@@ -1521,6 +1757,7 @@
 
   // --- Home ---
   function renderHome() {
+    document.getElementById('name-btn').textContent = data.name ? 'Hi, ' + data.name + '! \uD83D\uDC4B' : 'Add your name \u270F\uFE0F';
     // A streak only stays alive through yesterday; show 0 once a day is missed
     var streakAlive = data.lastPracticeDate && daysSince(data.lastPracticeDate) <= 1;
     document.getElementById('daily-streak').textContent = (streakAlive ? data.dailyStreak : 0) + ' \uD83D\uDD25';
@@ -1837,7 +2074,9 @@
   document.getElementById('reset-cancel-btn').addEventListener('click', closeResetModal);
 
   document.getElementById('reset-confirm-btn').addEventListener('click', function () {
+    var name = data.name;
     data = defaults();
+    data.name = name;
     initFacts();
     saveData();
     renderHome();
@@ -1860,6 +2099,73 @@
   document.getElementById('history-back-btn').addEventListener('click', function () {
     renderHome();
     showScreen('home');
+  });
+
+  document.getElementById('history-share-week-btn').addEventListener('click', function () {
+    var dates = lastWeekDates();
+    if (dates.length) openShareModal(dates, 'Last 7 days');
+  });
+
+  document.getElementById('share-text-btn').addEventListener('click', function () {
+    textMessage('Here\'s my Multiply! practice history: ' + document.getElementById('share-link').value);
+  });
+
+  document.getElementById('share-copy-btn').addEventListener('click', function () {
+    var linkEl = document.getElementById('share-link');
+    var msg = document.getElementById('share-msg');
+    navigator.clipboard.writeText(linkEl.value).then(function () {
+      msg.textContent = 'Link copied!';
+      msg.style.color = 'var(--correct)';
+    }).catch(function () {
+      linkEl.select();
+      msg.textContent = 'Select the link & copy it';
+      msg.style.color = 'var(--primary)';
+    });
+  });
+
+  document.getElementById('share-close-btn').addEventListener('click', closeShareModal);
+  shareModal.addEventListener('click', function (e) {
+    if (e.target === shareModal) closeShareModal();
+  });
+
+  document.getElementById('shared-history-home-btn').addEventListener('click', function () {
+    renderHome();
+    showScreen('home');
+  });
+
+  // Player name (optional): Save with an empty box clears it
+  var nameModal = document.getElementById('name-modal');
+  var nameInput = document.getElementById('name-input');
+
+  function closeNameModal() {
+    nameModal.style.display = 'none';
+  }
+
+  function saveName() {
+    data.name = cleanName(nameInput.value);
+    saveData();
+    renderHome();
+    closeNameModal();
+  }
+
+  document.getElementById('name-btn').addEventListener('click', function () {
+    nameInput.value = data.name || '';
+    nameModal.style.display = '';
+    nameInput.focus();
+  });
+  document.getElementById('name-cancel-btn').addEventListener('click', closeNameModal);
+  document.getElementById('name-save-btn').addEventListener('click', saveName);
+  nameInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') saveName();
+  });
+  nameModal.addEventListener('click', function (e) {
+    if (e.target === nameModal) closeNameModal();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (shareModal.style.display !== 'none') closeShareModal();
+    if (nameModal.style.display !== 'none') closeNameModal();
   });
 
   // Weakest facts navigation
@@ -2098,10 +2404,9 @@
 
   document.getElementById('challenge-text-code-btn').addEventListener('click', function () {
     var code = document.getElementById('challenge-show-code').textContent;
-    var url = location.origin + location.pathname + '?code=' + code;
-    var message = 'Join my Multiply! challenge! Tap to play: ' + url;
-    // iOS and Android both accept the "?&body=" form of the sms: URI
-    location.href = 'sms:?&body=' + encodeURIComponent(message);
+    var url = appLink('code', code);
+    var message = (data.name ? data.name + ' challenged you' : 'Join my challenge') + ' on Multiply! Tap to play: ' + url;
+    textMessage(message);
   });
 
   document.getElementById('challenge-code-input').addEventListener('input', function () {
@@ -2117,7 +2422,7 @@
   document.getElementById('share-score-btn').addEventListener('click', function () {
     var accuracy = percent(session.correct, session.total);
     var code = session.challengeConfig ? encodeChallenge(session.challengeConfig) : '';
-    var text = 'Multiply! Challenge Result\n' +
+    var text = (data.name ? data.name + '\'s ' : '') + 'Multiply! Challenge Result\n' +
       session.correct + ' correct / ' + session.total + ' total (' + accuracy + '%)\n' +
       'Best Streak: ' + session.bestStreak + '\n' +
       'Code: ' + code + '\n' +
@@ -2235,10 +2540,15 @@
     showScreen('home');
     generateStars();
 
-    // Arriving via a shared link: pre-fill the code and open the join screen
-    var sharedCode = new URLSearchParams(location.search).get('code');
-    if (sharedCode) {
-      history.replaceState(null, '', location.pathname);
+    // Arriving via a shared link: show the shared history, or pre-fill a
+    // challenge code and open the join screen
+    var params = new URLSearchParams(location.search);
+    var sharedHistory = params.get('history');
+    var sharedCode = params.get('code');
+    if (sharedHistory || sharedCode) history.replaceState(null, '', location.pathname);
+    if (sharedHistory) {
+      showSharedHistory(sharedHistory);
+    } else if (sharedCode) {
       var input = document.getElementById('challenge-code-input');
       input.value = sharedCode;
       input.dispatchEvent(new Event('input'));
