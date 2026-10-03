@@ -49,6 +49,7 @@
   // Coin-style ding that climbs a semitone per streak (caps one octave up),
   // so a run of correct answers audibly "levels up"
   function playCorrectSound() {
+    duckMusic();
     var lift = Math.pow(2, Math.min(session.streak, 12) / 12);
     playTone(784 * lift, 0.08, 'square', 0.05);
     setTimeout(function () { playTone(1175 * lift, 0.22, 'square', 0.05); }, 70);
@@ -57,12 +58,14 @@
 
   // Gentle descending "uh-oh" — encouraging, not a punishment buzz
   function playWrongSound() {
+    duckMusic();
     playTone(311, 0.16, 'triangle', 0.12);
     setTimeout(function () { playTone(233, 0.3, 'triangle', 0.12, 180); }, 140);
   }
 
   // Rising fanfare arpeggio capped with a full chord
   function playMasterySound() {
+    duckMusic();
     playTone(523, 0.12, 'square', 0.06);
     setTimeout(function () { playTone(659, 0.12, 'square', 0.06); }, 90);
     setTimeout(function () { playTone(784, 0.12, 'square', 0.06); }, 180);
@@ -75,129 +78,274 @@
 
   // Upward sweep into a sparkle chime
   function playStreakSound() {
+    duckMusic();
     playTone(440, 0.35, 'sawtooth', 0.05, 1760);
     setTimeout(function () { playTone(1760, 0.3, 'sine', 0.08); }, 300);
     setTimeout(function () { playTone(2217, 0.35, 'sine', 0.06); }, 380);
   }
 
   // --- Background Music ---
-  var bgMusic = { current: null, nodes: null };
+  // Notes are scheduled on the audio clock by a lookahead sequencer (a coarse
+  // JS timer queues each step ~200ms ahead), so the beat stays steady even
+  // when the main thread is busy. Every voice has a soft attack/release so
+  // nothing clicks.
+  var bgMusic = { current: null, nodes: null, next: null, fading: false };
+  var SEQ_TICK_MS = 50;
+  var SEQ_LOOKAHEAD = 0.2;
 
-  function addOsc(ctx, dest, type, freq, gainVal) {
-    var osc = ctx.createOscillator();
-    var gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    gain.gain.value = gainVal;
-    osc.connect(gain);
-    gain.connect(dest);
-    osc.start();
-    return { osc: osc, gain: gain };
+  function midiFreq(m) {
+    return 440 * Math.pow(2, (m - 69) / 12);
   }
 
-  function playPluck(ctx, dest, freq, gainVal, duration, type) {
+  // One enveloped oscillator note starting at audio time t
+  function musicNote(ctx, dest, t, midi, dur, type, vol, attack) {
     var osc = ctx.createOscillator();
     var g = ctx.createGain();
-    osc.type = type || 'sine';
-    osc.frequency.value = freq;
-    g.gain.setValueAtTime(gainVal, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.type = type;
+    osc.frequency.setValueAtTime(midiFreq(midi), t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + (attack || 0.005));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g);
     g.connect(dest);
-    osc.start();
-    osc.stop(ctx.currentTime + duration);
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
   }
 
-  // build(ctx, master) wires a track into the master gain and returns
-  // { oscs, intervals, fadeIn } for stopBgMusic to tear down later.
+  var noiseBuffer = null;
+  function noiseHit(ctx, dest, t, dur, vol, filterType, freq) {
+    if (!noiseBuffer) {
+      noiseBuffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      var ch = noiseBuffer.getChannelData(0);
+      for (var i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+    }
+    var src = ctx.createBufferSource();
+    src.buffer = noiseBuffer;
+    var f = ctx.createBiquadFilter();
+    f.type = filterType;
+    f.frequency.value = freq;
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f);
+    f.connect(g);
+    g.connect(dest);
+    src.start(t);
+    src.stop(t + dur);
+  }
+
+  // Soft kick: a sine that drops in pitch
+  function kick(ctx, dest, t, vol) {
+    var osc = ctx.createOscillator();
+    var g = ctx.createGain();
+    osc.frequency.setValueAtTime(140, t);
+    osc.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    osc.connect(g);
+    g.connect(dest);
+    osc.start(t);
+    osc.stop(t + 0.2);
+  }
+
+  // A lowpass-filtered bus with an optional echo, feeding the track master
+  function musicBus(ctx, master, cutoff, echo) {
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = cutoff;
+    lp.connect(master);
+    if (echo) {
+      var delay = ctx.createDelay(1);
+      delay.delayTime.value = echo.time;
+      var feedback = ctx.createGain();
+      feedback.gain.value = echo.feedback;
+      var wet = ctx.createGain();
+      wet.gain.value = echo.mix;
+      lp.connect(delay);
+      delay.connect(feedback);
+      feedback.connect(delay);
+      delay.connect(wet);
+      wet.connect(master);
+    }
+    return lp;
+  }
+
+  // Calls onStep(step, time) for each step, stepDur seconds apart
+  function startSequencer(ctx, stepDur, onStep) {
+    var step = 0;
+    var nextTime = ctx.currentTime + 0.1;
+    return setInterval(function () {
+      // A throttled background tab falls behind; resync rather than burst
+      if (nextTime < ctx.currentTime) nextTime = ctx.currentTime + 0.05;
+      while (nextTime < ctx.currentTime + SEQ_LOOKAHEAD) {
+        onStep(step, nextTime);
+        step++;
+        nextTime += stepDur;
+      }
+    }, SEQ_TICK_MS);
+  }
+
+  // Briefly dips the music so answer sounds cut through
+  function duckMusic() {
+    if (!bgMusic.nodes || bgMusic.fading) return;
+    try {
+      var duck = bgMusic.nodes.duck.gain;
+      var now = getAudioCtx().currentTime;
+      duck.cancelScheduledValues(now);
+      duck.setTargetAtTime(0.35, now, 0.02);
+      duck.setTargetAtTime(1, now + 0.35, 0.25);
+    } catch (e) {}
+  }
+
+  // build(ctx, bus) wires a track into the master gain and returns
+  // { intervals, fadeIn } for stopBgMusic to tear down later.
+  // Requests made while a fade-out is in flight just replace bgMusic.next,
+  // so rapid screen changes can never stack two tracks.
   function startMusicTrack(name, build) {
-    if (bgMusic.current === name) return;
-    stopBgMusic(function () {
-      try {
-        var ctx = getAudioCtx();
-        if (ctx.state === 'suspended') ctx.resume();
-        var master = ctx.createGain();
-        master.gain.setValueAtTime(0, ctx.currentTime);
-        master.connect(ctx.destination);
-        var track = build(ctx, master);
-        master.gain.linearRampToValueAtTime(1, ctx.currentTime + track.fadeIn);
-        bgMusic.current = name;
-        bgMusic.nodes = { master: master, oscs: track.oscs, intervals: track.intervals };
-      } catch (e) {}
-    });
+    if (bgMusic.current === name && !bgMusic.fading) return;
+    bgMusic.next = { name: name, build: build };
+    stopBgMusic();
   }
 
+  function playNextTrack() {
+    var next = bgMusic.next;
+    bgMusic.next = null;
+    if (!next || (data && data.settings && data.settings.muted)) return;
+    try {
+      var ctx = getAudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+      var duck = ctx.createGain();
+      duck.connect(ctx.destination);
+      var master = ctx.createGain();
+      master.gain.setValueAtTime(0, ctx.currentTime);
+      master.connect(duck);
+      var track = next.build(ctx, master);
+      master.gain.linearRampToValueAtTime(1, ctx.currentTime + track.fadeIn);
+      bgMusic.current = next.name;
+      bgMusic.nodes = { master: master, duck: duck, intervals: track.intervals };
+      document.body.dataset.music = next.name;
+    } catch (e) {}
+  }
+
+  // Stops the music entirely, dropping any track queued behind a fade
+  function silenceBgMusic() {
+    bgMusic.next = null;
+    stopBgMusic();
+  }
+
+  // Menus: a slow, spacey Cmaj7 - Am7 - Fmaj7 - G6 pad with a soft bass
+  // and echoing star twinkles drawn from the current chord
   function startAmbientMusic() {
     startMusicTrack('ambient', function (ctx, master) {
-      // Drone pad: root plus a fifth above
-      var drone = addOsc(ctx, master, 'sine', 110, 0.04);
-      var drone2 = addOsc(ctx, master, 'sine', 165, 0.02);
-
-      // Twinkling arpeggios
-      var twinkleNotes = [330, 392, 440, 523, 587, 659, 784];
-      var twinkleInterval = setInterval(function () {
-        if (data && data.settings && data.settings.muted) return;
-        var freq = twinkleNotes[Math.floor(Math.random() * twinkleNotes.length)];
-        playPluck(ctx, master, freq, 0.03, 2);
-        if (Math.random() < 0.3) playPluck(ctx, master, freq * 1.5, 0.018, 2);
-      }, 1500 + Math.random() * 2000);
-
-      return { oscs: [drone.osc, drone2.osc], intervals: [twinkleInterval], fadeIn: 2 };
+      var pad = musicBus(ctx, master, 900);
+      var sparkle = musicBus(ctx, master, 5000, { time: 0.375, feedback: 0.45, mix: 0.5 });
+      var chords = [
+        { root: 48, tones: [60, 64, 67, 71] }, // Cmaj7
+        { root: 45, tones: [57, 60, 64, 67] }, // Am7
+        { root: 41, tones: [57, 60, 65, 64] }, // Fmaj7
+        { root: 43, tones: [55, 59, 62, 64] }, // G6
+      ];
+      var BEATS_PER_CHORD = 8;
+      var beat = 0.5;
+      var interval = startSequencer(ctx, beat, function (step, t) {
+        var chord = chords[Math.floor(step / BEATS_PER_CHORD) % chords.length];
+        if (step % BEATS_PER_CHORD === 0) {
+          var hold = beat * BEATS_PER_CHORD + 1.5; // overlap into the next chord
+          for (var i = 0; i < chord.tones.length; i++) {
+            musicNote(ctx, pad, t, chord.tones[i], hold, 'triangle', 0.026, 1.2);
+          }
+          musicNote(ctx, pad, t, chord.root, hold, 'sine', 0.06, 1.5);
+        }
+        if (Math.random() < 0.35) {
+          var tone = chord.tones[Math.floor(Math.random() * chord.tones.length)] + 24;
+          musicNote(ctx, sparkle, t, tone, 1.4, 'sine', 0.035);
+        }
+      });
+      return { intervals: [interval], fadeIn: 2 };
     });
   }
+
+  // Practice: a bouncy 116bpm chiptune groove over C - G - Am - F with an
+  // 8-bar melody. Once a streak reaches 5 a sparkle layer doubles the
+  // melody an octave up, so the music "levels up" with the player.
+  var GAME_CHORDS = [
+    [48, 52, 55], [43, 47, 50], [45, 48, 52], [41, 45, 48],  // C G Am F
+    [48, 52, 55], [43, 47, 50], [41, 45, 48], [43, 47, 50],  // C G F G
+  ];
+  // One entry per eighth note (8 per bar); 0 is a rest
+  var GAME_MELODY = [
+    72, 0, 76, 0, 79, 0, 76, 74,   71, 0, 74, 0, 79, 0, 74, 0,
+    76, 0, 72, 0, 69, 0, 72, 76,   77, 0, 76, 74, 72, 0, 0, 0,
+    72, 0, 76, 0, 79, 0, 84, 0,    83, 0, 79, 0, 74, 0, 79, 0,
+    81, 0, 77, 0, 72, 0, 77, 81,   79, 0, 77, 0, 76, 0, 74, 0,
+  ];
+  // Bass per eighth: 0 = root, 7 = fifth, 12 = octave, null = rest
+  var GAME_BASS = [0, null, 0, 7, 12, null, 7, 0];
 
   function startGameplayMusic() {
     startMusicTrack('gameplay', function (ctx, master) {
-      // Soft pad underneath
-      var pad = addOsc(ctx, master, 'sine', 220, 0.015);
+      var lead = musicBus(ctx, master, 2400, { time: 0.39, feedback: 0.25, mix: 0.25 });
+      var low = musicBus(ctx, master, 1100);
+      var drums = musicBus(ctx, master, 12000);
+      var eighth = 60 / 116 / 2;
+      var interval = startSequencer(ctx, eighth, function (step, t) {
+        var pos = step % 8;
+        var bar = Math.floor(step / 8) % GAME_CHORDS.length;
+        var chord = GAME_CHORDS[bar];
 
-      // Bouncy 120bpm step sequencer: eighth-note bassline, an E-minor
-      // pentatonic riff on top, and a tick on the off-beats
-      var bassLine = [82.4, 0, 82.4, 123.5, 98, 0, 98, 123.5];
-      var riff = [330, 0, 392, 440, 0, 494, 0, 587, 494, 0, 440, 392, 330, 0, 392, 0];
-      var step = 0;
-      var stepInterval = setInterval(function () {
-        if (data && data.settings && data.settings.muted) return;
-        var b = bassLine[step % bassLine.length];
-        if (b) playPluck(ctx, master, b, 0.05, 0.22, 'triangle');
-        var m = riff[step % riff.length];
-        if (m) playPluck(ctx, master, m, 0.022, 0.3, 'square');
-        if (step % 2 === 1) playPluck(ctx, master, 6000, 0.006, 0.05, 'square');
-        step++;
-      }, 250);
+        if (pos === 0) {
+          for (var i = 0; i < chord.length; i++) {
+            musicNote(ctx, low, t, chord[i] + 12, eighth * 7.5, 'triangle', 0.012, 0.08);
+          }
+        }
+        var b = GAME_BASS[pos];
+        if (b !== null) musicNote(ctx, low, t, chord[0] + b, eighth * 0.9, 'triangle', 0.06);
 
-      return { oscs: [pad.osc], intervals: [stepInterval], fadeIn: 1 };
+        var m = GAME_MELODY[step % GAME_MELODY.length];
+        if (m) {
+          musicNote(ctx, lead, t, m, eighth * 1.6, 'square', 0.022);
+          if (session.streak >= 5) musicNote(ctx, lead, t, m + 12, eighth * 1.2, 'sine', 0.018);
+        }
+
+        if (pos % 4 === 0) kick(ctx, drums, t, 0.09);
+        if (pos % 4 === 2) noiseHit(ctx, drums, t, 0.12, 0.02, 'bandpass', 1800);
+        if (pos % 2 === 1) noiseHit(ctx, drums, t, 0.04, 0.012, 'highpass', 7000);
+      });
+      return { intervals: [interval], fadeIn: 1 };
     });
   }
 
-  function stopBgMusic(cb) {
-    if (!bgMusic.nodes) { if (cb) cb(); return; }
-    try {
-      var ctx = getAudioCtx();
-      var master = bgMusic.nodes.master;
-      master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
-      master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
-      var oscs = bgMusic.nodes.oscs;
-      var intervals = bgMusic.nodes.intervals;
-      for (var i = 0; i < intervals.length; i++) clearInterval(intervals[i]);
-      setTimeout(function () {
-        for (var i = 0; i < oscs.length; i++) {
-          try { oscs[i].stop(); } catch (e) {}
-        }
-        bgMusic.nodes = null;
-        bgMusic.current = null;
-        if (cb) cb();
-      }, 600);
-    } catch (e) {
+  // Fades out the current track, then starts bgMusic.next if one is queued
+  function stopBgMusic() {
+    if (bgMusic.fading) return; // the fade in flight will pick up bgMusic.next
+    if (!bgMusic.nodes) { playNextTrack(); return; }
+    bgMusic.fading = true;
+    var nodes = bgMusic.nodes;
+    function finish() {
+      // Disconnecting also frees the echo feedback loops
+      try { nodes.duck.disconnect(); } catch (e) {}
       bgMusic.nodes = null;
       bgMusic.current = null;
-      if (cb) cb();
+      bgMusic.fading = false;
+      delete document.body.dataset.music;
+      playNextTrack();
+    }
+    try {
+      var ctx = getAudioCtx();
+      var master = nodes.master;
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+      master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+      for (var i = 0; i < nodes.intervals.length; i++) clearInterval(nodes.intervals[i]);
+      setTimeout(finish, 600);
+    } catch (e) {
+      finish();
     }
   }
 
   function updateBgMusic(screen) {
     if (data && data.settings && data.settings.muted) {
-      stopBgMusic();
+      silenceBgMusic();
       return;
     }
     if (!audioUnlocked) return;
@@ -426,6 +574,8 @@
     endTime: null,
     sandboxMode: false,
     sandboxFactKeys: null,
+    roundId: 0,
+    advancing: false,
   };
 
   // --- Defaults ---
@@ -435,6 +585,12 @@
 
   function todayLocal() {
     return formatYMD(new Date());
+  }
+
+  // Whole calendar days from a YYYY-MM-DD date to today. Rounds because a
+  // DST change makes a local day 23 or 25 hours long.
+  function daysSince(ymd) {
+    return Math.round((new Date(todayLocal() + 'T00:00:00') - new Date(ymd + 'T00:00:00')) / 86400000);
   }
 
   function percent(part, whole) {
@@ -450,6 +606,7 @@
       lastPracticeDate: null,
       personalBest: 0,
       lastTitle: null,
+      lastRound: null,
     };
   }
 
@@ -468,6 +625,7 @@
           lastPracticeDate: parsed.lastPracticeDate || null,
           personalBest: parsed.personalBest || 0,
           lastTitle: parsed.lastTitle || null,
+          lastRound: parsed.lastRound || null,
         };
         // Migrate from 78-fact (canonical) to 144-fact format
         migrateToFullFacts();
@@ -602,6 +760,7 @@
     input.value = '';
     input.placeholder = '?';
     session.problemStartTime = Date.now();
+    session.advancing = false;
     session.waitingForRetype = false;
     session.requiredRetype = null;
 
@@ -678,8 +837,7 @@
     // Decay: lose 1 level per 2 days inactive, never below Star Pilot (index 1)
     // and never above the earned level (a Space Cadet stays a Space Cadet)
     if (data.lastPracticeDate) {
-      var today = todayLocal();
-      var daysInactive = Math.floor((new Date(today + 'T00:00:00') - new Date(data.lastPracticeDate + 'T00:00:00')) / 86400000);
+      var daysInactive = daysSince(data.lastPracticeDate);
       if (daysInactive >= 2) {
         levelIndex = Math.max(Math.min(levelIndex, 1), levelIndex - Math.floor(daysInactive / 2));
       }
@@ -726,13 +884,18 @@
     }
 
     var dismissed = false;
+    var round = session.roundId;
     function dismiss() {
       if (dismissed) return;
       dismissed = true;
-      overlay.style.display = 'none';
       overlay.removeEventListener('click', dismiss);
       document.removeEventListener('keydown', dismissKey);
-      session.paused = false;
+      // Ending the round already tore the overlay down; a new round may be
+      // running now, so this late timer must not touch it.
+      if (session.roundId !== round) return;
+      overlay.style.display = 'none';
+      // Auto-dismissing in a background tab must not restart the clock
+      session.paused = document.hidden;
       // Show next in queue or resume
       if (celebrationQueue.length > 0) {
         showNextCelebration();
@@ -759,6 +922,17 @@
     document.getElementById('session-score').textContent = session.correct + ' correct';
   }
 
+  // Shows the next problem after a short feedback pause. Answers are locked
+  // until then, and the call is dropped if the round ended or was replaced.
+  function advanceAfter(ms) {
+    session.advancing = true;
+    var round = session.roundId;
+    setTimeout(function () {
+      if (session.roundId !== round || celebrationShowing) return;
+      if (session.timerSeconds > 0) nextProblem();
+    }, ms);
+  }
+
   // --- Miss handling (wrong answer or timeout) ---
   // Penalizes the fact, shows the correct answer, then either auto-advances
   // (challenge mode) or requires the child to retype the answer.
@@ -782,9 +956,7 @@
     var input = document.getElementById('answer-input');
     input.value = '';
     if (session.challengeMode) {
-      setTimeout(function () {
-        if (session.timerSeconds > 0) nextProblem();
-      }, 800);
+      advanceAfter(800);
     } else {
       session.waitingForRetype = true;
       session.requiredRetype = correctAnswer;
@@ -816,7 +988,7 @@
 
   // --- Submit ---
   function submitAnswer() {
-    if (session.paused) return;
+    if (session.paused || session.advancing) return;
     clearInterval(session.questionTimerInterval);
     document.getElementById('question-timer-wrap').style.display = 'none';
     var input = document.getElementById('answer-input');
@@ -895,9 +1067,7 @@
 
       // In challenge mode, skip celebrations and advance immediately
       if (session.challengeMode) {
-        setTimeout(function () {
-          if (session.timerSeconds > 0) nextProblem();
-        }, 400);
+        advanceAfter(400);
       } else {
         // Queue celebrations (mastery first, then level-up, then streak)
         if (justMastered) {
@@ -926,11 +1096,7 @@
             session.bestStreak >= 10 ? { particleCount: 60, spread: 55 } : null
           );
         } else if (!justMastered && !leveledUp && !isNewBestStreak) {
-          setTimeout(function () {
-            if (!celebrationShowing && (session.timerSeconds > 0 || session.paused)) {
-              nextProblem();
-            }
-          }, 400);
+          advanceAfter(400);
         }
         // If mastery/level celebrations queued, showNextCelebration handles advancing
       }
@@ -1005,6 +1171,8 @@
     session.requiredRetype = null;
     session.streakCelebrated = false;
     session.totalTime = 0;
+    session.roundId++;
+    session.advancing = false;
     clearInterval(session.timerInterval);
     session.timerInterval = null;
     clearInterval(session.questionTimerInterval);
@@ -1061,6 +1229,8 @@
   }
 
   function endSession() {
+    // Expire any pending advance/celebration timers from this round
+    session.roundId++;
     clearInterval(session.timerInterval);
     session.timerInterval = null;
     clearInterval(session.questionTimerInterval);
@@ -1089,9 +1259,7 @@
 
       // Daily streak
       if (data.lastPracticeDate) {
-        var last = new Date(data.lastPracticeDate + 'T00:00:00');
-        var now = new Date(today + 'T00:00:00');
-        var diffDays = Math.round((now - last) / 86400000);
+        var diffDays = daysSince(data.lastPracticeDate);
         if (diffDays === 1) {
           data.dailyStreak++;
         } else if (diffDays > 1) {
@@ -1336,7 +1504,9 @@
 
   // --- Home ---
   function renderHome() {
-    document.getElementById('daily-streak').textContent = data.dailyStreak + ' \uD83D\uDD25';
+    // A streak only stays alive through yesterday; show 0 once a day is missed
+    var streakAlive = data.lastPracticeDate && daysSince(data.lastPracticeDate) <= 1;
+    document.getElementById('daily-streak').textContent = (streakAlive ? data.dailyStreak : 0) + ' \uD83D\uDD25';
     document.getElementById('personal-best').textContent = data.personalBest + '/min \u2B50';
     updateMuteBtn();
     renderProgressGrid();
@@ -1488,6 +1658,10 @@
     var version = bytes[0];
     if (version !== 1 && version !== 2) return 'Unsupported code version';
 
+    // Header + 9 bits per fact; a truncated code would zero every weight
+    var factCount = (version === 1) ? FACT_KEYS_V1.length : FACT_KEYS.length;
+    if (bytes.length !== 4 + Math.ceil(factCount * 9 / 8)) return 'Invalid code: wrong length';
+
     var dailyStreak = bytes[1];
     var personalBest = ((bytes[2] << 8) | bytes[3]) / 10;
 
@@ -1539,7 +1713,7 @@
     updateMuteBtn();
     saveData();
     if (data.settings.muted) {
-      stopBgMusic();
+      silenceBgMusic();
       if (silentAudio) silentAudio.pause();
     } else {
       if (audioUnlocked) getSilentAudio().play().catch(function () {});

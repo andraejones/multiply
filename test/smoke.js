@@ -1,6 +1,7 @@
 // End-to-end smoke test for Multiply. Drives the real app in headless
 // Chromium via playwright-core: practice flow, retype mode, summary stats,
-// history, sandbox, challenge codes, export/import, and mastery decay.
+// history, sandbox, challenge codes, export/import, mastery decay, and
+// regressions for round-timer, persistence, and music races.
 //
 // Run:  cd test && npm install && npm test
 // Pass --shots to also save screenshots (home/practice/summary) next to
@@ -107,6 +108,13 @@ function ok(msg) { console.log('ok: ' + msg); }
     const streak = await page.locator('#streak-display').textContent();
     if (!streak.startsWith('1 ')) fail('streak after correct answer: ' + streak);
     else ok('streak updated: ' + streak.trim());
+    // Re-submitting during the feedback pause must not grade the fact again
+    for (const ch of answer) await page.keyboard.press(ch);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(50);
+    const rescore = await page.locator('#session-score').textContent();
+    if (rescore.trim() !== '1 correct') fail('answer double-counted during feedback pause: ' + rescore);
+    else ok('re-submit during feedback pause ignored');
 
     // Wait for next problem, answer wrongly -> retype flow
     await page.waitForTimeout(600);
@@ -170,6 +178,26 @@ function ok(msg) { console.log('ok: ' + msg); }
   await page.click('#end-confirm-btn');
   await page.waitForTimeout(100);
 
+  // A round ended mid feedback pause must not advance the next round: type a
+  // digit into the new round's first problem and make sure it isn't wiped.
+  await page.click('#home-btn');
+  await page.click('#start-btn');
+  await page.waitForTimeout(100);
+  const pq = (await page.locator('#problem-display').textContent()).match(/(\d+)\s*×\s*(\d+)/);
+  for (const ch of String(Number(pq[1]) * Number(pq[2]))) await page.keyboard.press(ch);
+  await page.keyboard.press('Enter');
+  await page.click('#end-btn');
+  await page.click('#end-confirm-btn');
+  await page.click('#restart-btn');
+  await page.keyboard.press('7');
+  await page.waitForTimeout(600);
+  const carried = await page.locator('#answer-input').inputValue();
+  if (carried !== '7') fail('stale timer from previous round advanced the new round');
+  else ok('previous round\'s pending advance does not leak into the next');
+  await page.click('#end-btn');
+  await page.click('#end-confirm-btn');
+  await page.waitForTimeout(100);
+
   // Challenge: generate code and verify countdown screen
   await page.click('#home-btn');
   await page.click('#challenge-btn');
@@ -202,6 +230,19 @@ function ok(msg) { console.log('ok: ' + msg); }
   const importMsg = await page.locator('#import-msg').textContent();
   if (importMsg.trim() !== 'Progress imported!') fail('import failed: ' + importMsg);
   else ok('import round-trip succeeded');
+  // A truncated code that happens to carry a valid checksum must be rejected
+  const crc8 = (bytes) => bytes.reduce((crc, byte) => {
+    crc ^= byte;
+    for (let j = 0; j < 8; j++) crc = (crc & 0x80) ? ((crc << 1) ^ 0x07) & 0xFF : (crc << 1) & 0xFF;
+    return crc;
+  }, 0);
+  const shortBytes = exportCode.slice(0, -4).match(/../g).map((h) => parseInt(h, 16));
+  shortBytes.push(crc8(shortBytes));
+  await page.fill('#import-code', shortBytes.map((b) => b.toString(16).padStart(2, '0')).join(''));
+  await page.click('#import-btn');
+  const shortMsg = (await page.locator('#import-msg').textContent()).trim();
+  if (shortMsg !== 'Invalid code: wrong length') fail('truncated import code not rejected: ' + shortMsg);
+  else ok('truncated import code rejected');
 
   // Decay behavior: seed mastered facts with old lastCorrect timestamps
   await page.evaluate(() => {
@@ -217,6 +258,8 @@ function ok(msg) { console.log('ok: ' + msg); }
   });
   await page.reload();
   await page.waitForTimeout(200);
+  if (!(await page.locator('#last-round-btn').isVisible())) fail('last round stats lost on reload');
+  else ok('last round stats survive reload');
   const cell = async (key) => page.locator('#progress-grid td[title^="' + key + ':"]').getAttribute('title');
   const graceTitle = await cell('2x2');
   if (graceTitle !== '2x2: weight 1') fail('grace period: ' + graceTitle + ' (expected weight 1)');
@@ -283,6 +326,44 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (await page.locator('#reset-modal').isVisible()) fail('reset modal still open after confirm');
   else if (!streakAfterReset.startsWith('0')) fail('progress not reset: ' + streakAfterReset);
   else ok('confirm resets progress');
+
+  // A lapsed daily streak reads 0 on the home screen (it resets on next play)
+  const homeStreak = (daysAgo) => page.evaluate((n) => {
+    const raw = JSON.parse(localStorage.getItem('multiply-trainer'));
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    raw.dailyStreak = 4;
+    raw.lastPracticeDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    localStorage.setItem('multiply-trainer', JSON.stringify(raw));
+  }, daysAgo).then(() => page.reload()).then(() => page.locator('#daily-streak').textContent());
+  const aliveStreak = await homeStreak(1);
+  const lapsedStreak = await homeStreak(3);
+  if (!aliveStreak.startsWith('4')) fail('streak from yesterday not shown: ' + aliveStreak);
+  else if (!lapsedStreak.startsWith('0')) fail('lapsed streak still shown: ' + lapsedStreak);
+  else ok('daily streak shows while alive, 0 once lapsed');
+
+  // Background music: ending a round and instantly replaying must leave only
+  // the gameplay track running (each track runs one 50ms sequencer interval)
+  const mpage = await browser.newPage();
+  await mpage.addInitScript(() => {
+    const live = new Map();
+    const si = window.setInterval, ci = window.clearInterval;
+    window.setInterval = function (fn, ms) { const id = si.apply(this, arguments); live.set(id, ms); return id; };
+    window.clearInterval = function (id) { live.delete(id); return ci.apply(this, arguments); };
+    window.musicTracks = () => ({ sequencers: [...live.values()].filter((ms) => ms === 50).length, track: document.body.dataset.music });
+  });
+  await mpage.goto(APP);
+  await mpage.waitForTimeout(300);
+  await mpage.click('#start-btn');
+  await mpage.waitForTimeout(1000);
+  await mpage.click('#end-btn');
+  await mpage.click('#end-confirm-btn');
+  await mpage.click('#restart-btn');
+  await mpage.waitForTimeout(1500);
+  const tracks = await mpage.evaluate(() => musicTracks());
+  if (tracks.sequencers !== 1 || tracks.track !== 'gameplay') fail('music after quick replay: ' + JSON.stringify(tracks));
+  else ok('quick replay leaves only gameplay music running');
+  await mpage.close();
 
   if (errors.length) fail('console/page errors: ' + JSON.stringify(errors));
   else ok('no console or page errors');

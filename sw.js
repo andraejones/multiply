@@ -1,6 +1,6 @@
 /* Multiply service worker: precache the app shell, cache CDN assets
    (fonts, animate.css, confetti) on first use so the app runs offline. */
-var CACHE = 'multiply-v3';
+var CACHE = 'multiply-v4';
 
 var PRECACHE = [
   './',
@@ -41,16 +41,21 @@ self.addEventListener('fetch', function (event) {
   if (request.method !== 'GET') return;
 
   // Navigations: try the network for fresh HTML, fall back to the cached shell.
+  // Shared challenge links add ?code=..., so cache by path only (one entry,
+  // not one per link) and never let an error page replace the good shell.
   if (request.mode === 'navigate') {
+    var pageUrl = request.url.split('?')[0];
     event.respondWith(
       fetch(request)
         .then(function (response) {
-          var copy = response.clone();
-          caches.open(CACHE).then(function (cache) { cache.put(request, copy); });
+          if (response.ok) {
+            var copy = response.clone();
+            caches.open(CACHE).then(function (cache) { cache.put(pageUrl, copy); });
+          }
           return response;
         })
         .catch(function () {
-          return caches.match(request).then(function (hit) {
+          return caches.match(pageUrl).then(function (hit) {
             return hit || caches.match('index.html');
           });
         })
