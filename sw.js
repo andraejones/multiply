@@ -1,6 +1,6 @@
 /* Multiply service worker: precache the app shell, cache CDN assets
    (fonts, animate.css, confetti) on first use so the app runs offline. */
-var CACHE = 'multiply-v4';
+var CACHE = 'multiply-v5';
 
 var PRECACHE = [
   './',

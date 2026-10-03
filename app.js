@@ -1183,6 +1183,11 @@
 
   function beginRound() {
     session.initialTimerSeconds = session.timerSeconds;
+    session.endedEarly = false;
+    // Fact progress is saved answer by answer; keep a copy so a round
+    // ended early can be undone (see endSession)
+    session.snapshot = session.sandboxMode ? null :
+      JSON.stringify({ facts: data.facts, lastTitle: data.lastTitle });
     document.getElementById('celebration-overlay').style.display = 'none';
     document.getElementById('streak-overlay').style.display = 'none';
     generateStars();
@@ -1228,7 +1233,11 @@
     return session.total > 0 ? (session.totalTime / session.total / 1000).toFixed(1) : '0.0';
   }
 
-  function endSession() {
+  // endedEarly: the player quit with "End Round". Only rounds played to the
+  // end count, so an early end rolls fact progress back to the round's start
+  // and skips history, daily streak, personal best and last-round stats.
+  function endSession(endedEarly) {
+    session.endedEarly = !!endedEarly;
     // Expire any pending advance/celebration timers from this round
     session.roundId++;
     clearInterval(session.timerInterval);
@@ -1248,7 +1257,12 @@
     session.rate = rate;
     session.isNewBest = false;
 
-    if (!session.sandboxMode) {
+    if (session.endedEarly && session.snapshot) {
+      var snap = JSON.parse(session.snapshot);
+      data.facts = snap.facts;
+      data.lastTitle = snap.lastTitle;
+      saveData();
+    } else if (!session.sandboxMode) {
       // Update history
       var today = todayLocal();
       if (!data.history[today]) {
@@ -1293,7 +1307,7 @@
     // Show/hide share button based on challenge mode
     var shareBtn = document.getElementById('share-score-btn');
     if (shareBtn) {
-      shareBtn.style.display = session.challengeMode ? '' : 'none';
+      shareBtn.style.display = session.challengeMode && !session.endedEarly ? '' : 'none';
     }
 
     renderSummary();
@@ -1317,6 +1331,9 @@
     if (session.isNewBest) {
       msg = 'NEW PERSONAL BEST! ' + msg;
     }
+    if (session.endedEarly) {
+      msg = 'Round ended early, so it won\'t count toward your stats. Play a full round to score!';
+    }
     document.getElementById('summary-message').textContent = msg;
 
     // Weak spots — facts missed this round
@@ -1334,7 +1351,7 @@
       }
     } else {
       weakSection.style.display = 'none';
-      fireConfetti({ particleCount: 100, spread: 80, colors: ['#34D399', '#FFD700', '#60A5FA'] });
+      if (!session.endedEarly) fireConfetti({ particleCount: 100, spread: 80, colors: ['#34D399', '#FFD700', '#60A5FA'] });
     }
   }
 
@@ -1793,7 +1810,7 @@
     celebrationQueue = [];
     celebrationShowing = false;
     session.paused = false;
-    endSession();
+    endSession(true);
   });
 
   endModal.addEventListener('click', function (e) {

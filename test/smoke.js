@@ -81,7 +81,9 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (homeDrift < 1) fail('stars not drifting on home screen (max drift ' + homeDrift.toFixed(2) + 'px)');
   else ok('stars drifting on home (' + homeDrift.toFixed(1) + 'px max over 700ms)');
 
-  // Start a quick session
+  // Start a quick session (it gets ended early below, which must undo it)
+  const savedFacts = () => page.evaluate(() => localStorage.getItem('multiply-trainer') && JSON.stringify(JSON.parse(localStorage.getItem('multiply-trainer')).facts));
+  const factsBefore = await savedFacts();
   await page.click('#start-btn');
   await page.waitForTimeout(200);
   if (await page.locator('section#practice.active').count() !== 1) fail('practice screen not active');
@@ -156,16 +158,24 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (acc.trim() !== '50%') fail('summary accuracy: ' + acc + ' (expected 50%)');
   else ok('summary accuracy 50% (1 of 2)');
 
-  // Back home: a seconds-long round must not set a rate personal best
+  // Ending early: the summary says so, and nothing from the round counts
+  const earlyMsg = await page.locator('#summary-message').textContent();
+  if (!earlyMsg.includes("won't count")) fail('early-end summary message: ' + earlyMsg);
+  else ok('summary explains an early end does not count');
   await page.click('#home-btn');
-  const pb = await page.locator('#personal-best').textContent();
-  if (!pb.trim().startsWith('0/min')) fail('personal best set by early exit: ' + pb);
-  else ok('personal best not set by short round (' + pb.trim() + ')');
+  const earlyHome = {
+    best: (await page.locator('#personal-best').textContent()).trim(),
+    streak: (await page.locator('#daily-streak').textContent()).trim(),
+    lastRound: await page.locator('#last-round-btn').isVisible(),
+  };
+  if (!earlyHome.best.startsWith('0/min') || !earlyHome.streak.startsWith('0') || earlyHome.lastRound) fail('early-ended round counted: ' + JSON.stringify(earlyHome));
+  else ok('early end skips personal best, daily streak, last round stats');
+  if (await savedFacts() !== factsBefore) fail('early-ended round left fact progress behind');
+  else ok('early end rolls fact progress back');
   await page.click('#history-btn');
   await page.waitForTimeout(100);
-  const histCards = await page.locator('.history-summary-card').count();
-  if (histCards !== 2) fail('history summary cards: ' + histCards);
-  else ok('history summary cards render');
+  if (await page.locator('.history-summary-card').count() !== 0) fail('early-ended round added to history');
+  else ok('early end adds nothing to history');
   await page.click('#history-back-btn');
 
   // Sandbox practice mode
@@ -258,8 +268,6 @@ function ok(msg) { console.log('ok: ' + msg); }
   });
   await page.reload();
   await page.waitForTimeout(200);
-  if (!(await page.locator('#last-round-btn').isVisible())) fail('last round stats lost on reload');
-  else ok('last round stats survive reload');
   const cell = async (key) => page.locator('#progress-grid td[title^="' + key + ':"]').getAttribute('title');
   const graceTitle = await cell('2x2');
   if (graceTitle !== '2x2: weight 1') fail('grace period: ' + graceTitle + ' (expected weight 1)');
@@ -316,15 +324,16 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (!(await page.locator('#reset-modal').isVisible())) fail('reset modal did not open');
   else ok('reset modal opens');
   await page.click('#reset-cancel-btn');
-  const streakAfterCancel = await page.locator('#daily-streak').textContent();
+  // 2x2 was mastered (weight 1) by the decay setup above
+  const afterCancel = await cell('2x2');
   if (await page.locator('#reset-modal').isVisible()) fail('reset modal still open after cancel');
-  else if (!streakAfterCancel.startsWith('1')) fail('progress lost after cancel: ' + streakAfterCancel);
+  else if (afterCancel !== '2x2: weight 1') fail('progress lost after cancel: ' + afterCancel);
   else ok('cancel closes modal and keeps progress');
   await page.click('#reset-btn');
   await page.click('#reset-confirm-btn');
-  const streakAfterReset = await page.locator('#daily-streak').textContent();
+  const afterReset = await cell('2x2');
   if (await page.locator('#reset-modal').isVisible()) fail('reset modal still open after confirm');
-  else if (!streakAfterReset.startsWith('0')) fail('progress not reset: ' + streakAfterReset);
+  else if (afterReset !== '2x2: weight 5') fail('progress not reset: ' + afterReset);
   else ok('confirm resets progress');
 
   // A lapsed daily streak reads 0 on the home screen (it resets on next play)
@@ -341,6 +350,35 @@ function ok(msg) { console.log('ok: ' + msg); }
   if (!aliveStreak.startsWith('4')) fail('streak from yesterday not shown: ' + aliveStreak);
   else if (!lapsedStreak.startsWith('0')) fail('lapsed streak still shown: ' + lapsedStreak);
   else ok('daily streak shows while alive, 0 once lapsed');
+
+  // A round played to the end does count. A fake clock runs a 1-minute
+  // round in moments; unanswered problems time out as misses along the way.
+  const fpage = await browser.newPage();
+  fpage.on('pageerror', (e) => errors.push(e.message));
+  await fpage.clock.install();
+  await fpage.goto(APP);
+  await fpage.waitForTimeout(300);
+  await fpage.click('#timer-buttons button[data-minutes="1"]');
+  await fpage.click('#start-btn');
+  const fq = (await fpage.locator('#problem-display').textContent()).match(/(\d+)\s*×\s*(\d+)/);
+  for (const ch of String(Number(fq[1]) * Number(fq[2]))) await fpage.keyboard.press(ch);
+  await fpage.keyboard.press('Enter');
+  await fpage.clock.runFor('01:05');
+  const fullMsg = await fpage.locator('#summary-message').textContent();
+  if (await fpage.locator('section#summary.active').count() !== 1 || fullMsg.includes("won't count")) fail('full round did not finish normally: ' + fullMsg);
+  else ok('full round ends on its own timer');
+  await fpage.click('#home-btn');
+  const fullStreak = (await fpage.locator('#daily-streak').textContent()).trim();
+  if (!fullStreak.startsWith('1')) fail('full round did not count toward daily streak: ' + fullStreak);
+  else ok('full round counts toward daily streak');
+  await fpage.reload();
+  await fpage.waitForTimeout(200);
+  if (!(await fpage.locator('#last-round-btn').isVisible())) fail('last round stats lost on reload');
+  else ok('last round stats saved and survive reload');
+  await fpage.click('#history-btn');
+  if (await fpage.locator('.history-summary-card').count() !== 2) fail('full round missing from history');
+  else ok('full round recorded in history');
+  await fpage.close();
 
   // Background music: ending a round and instantly replaying must leave only
   // the gameplay track running (each track runs one 50ms sequencer interval)
