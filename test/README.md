@@ -14,7 +14,10 @@ Headless end-to-end test that drives the real app in Chromium and checks:
   played on a fake clock, does
 - Optional player name: greeting, personalized summary, persistence
 - Shared history links: the name isn't readable in the link, the recipient
-  sees the sender's name, and edited links are rejected
+  sees the sender's name, rank, and per-round details, edited links are
+  rejected, and original-format links still open
+- Progress over time: week-over-week tiles, accuracy/speed chart (including
+  keyboard tooltip), numbers table; rank ladder modal, including after time away
 - Sound suspends when the app loses focus or is hidden
 - Regressions: double-submit, stale round timers, lapsed daily streak,
   truncated transfer codes, background-music races

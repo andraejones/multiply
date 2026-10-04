@@ -393,12 +393,21 @@ function ok(msg) { console.log('ok: ' + msg); }
   await fpage.click('#history-btn');
   if (await fpage.locator('.history-summary-card').count() !== 2) fail('full round missing from history');
   else ok('full round recorded in history');
+  const dayRec = await fpage.evaluate(() => Object.values(JSON.parse(localStorage.getItem('multiply-trainer')).history)[0]);
+  if (!(dayRec.minutes > 0.9 && dayRec.timedCorrect === dayRec.correct && typeof dayRec.rounds[0].rate === 'number')) fail('round speed data not saved: ' + JSON.stringify(dayRec));
+  else ok('round saves minutes played and speed');
+  const oneDayNote = await fpage.locator('#trend-chart-note').textContent();
+  if (!(await fpage.locator('#progress-trends').isVisible()) || !/another day/.test(oneDayNote)) fail('progress section after one day: ' + oneDayNote);
+  else ok('progress section asks for another day before drawing a trend');
   if ((await fpage.locator('#history-title').textContent()) !== "Maya's History") fail('history title not personalized');
   else ok('history titled with the player\'s name');
 
   // Share one day of history by link. The name must not be readable in the
   // link, even after undoing the base64.
   const myRow = (await fpage.locator('#history-list .history-day').first().textContent()).replace('📲', '').trim();
+  const myRounds = await fpage.locator('#history-list .history-round').allTextContents();
+  if (myRounds.length !== 1 || !/^\d{1,2}:\d{2} (AM|PM) · 1 min round\d+\/\d+ \d+%$/.test(myRounds[0])) fail('round details in history: ' + JSON.stringify(myRounds));
+  else ok('history lists the round with time and timer: ' + myRounds[0]);
   await fpage.click('#history-list .history-day-share');
   if (!(await fpage.locator('#share-modal').isVisible())) fail('share modal did not open');
   const link = await fpage.locator('#share-link').inputValue();
@@ -425,10 +434,13 @@ function ok(msg) { console.log('ok: ' + msg); }
     by: await rpage.locator('#shared-by').textContent(),
     row: (await rpage.locator('#shared-history-list .history-day').first().textContent()).trim(),
     rows: await rpage.locator('#shared-history-list .history-day').count(),
+    rounds: await rpage.locator('#shared-history-list .history-round').allTextContents(),
+    rank: await rpage.locator('#shared-rank').textContent(),
     query: await rpage.evaluate(() => location.search),
   };
-  if (shared.active !== 1 || shared.title !== "Maya's History" || shared.by !== 'Shared by Maya' || shared.rows !== 1 || shared.row !== myRow || shared.query) fail('shared history view: ' + JSON.stringify(shared) + ' expected row ' + myRow);
-  else ok('shared link opens the history with the sender\'s name: ' + shared.row);
+  if (shared.active !== 1 || shared.title !== "Maya's History" || shared.by !== 'Shared by Maya' || shared.rows !== 1 || shared.row !== myRow ||
+    shared.rounds.join() !== myRounds.join() || shared.rank !== 'Rank: 🧑‍🚀 Space Cadet' || shared.query) fail('shared history view: ' + JSON.stringify(shared) + ' expected row ' + myRow);
+  else ok('shared link shows the sender\'s name, rank, and rounds: ' + shared.rank + ', ' + shared.rounds[0]);
   const recipientHistory = await rpage.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('multiply-trainer')).history).length);
   if (recipientHistory !== 0) fail('shared history leaked into the recipient\'s own history');
   else ok('shared history is view-only for the recipient');
@@ -443,7 +455,114 @@ function ok(msg) { console.log('ok: ' + msg); }
   const tamperMsg = await rpage.locator('#shared-by').textContent();
   if (!/broken or was changed/.test(tamperMsg) || await rpage.locator('#shared-history-list .history-day').count()) fail('tampered link accepted: ' + tamperMsg);
   else ok('edited history link is rejected');
+
+  // Days from before per-round details existed keep their totals as an
+  // "Other rounds" line, and the round's clock time and timer survive a link
+  await rpage.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('multiply-trainer'));
+    const at = new Date();
+    at.setHours(16, 15, 0, 0);
+    const today = at.getFullYear() + '-' + String(at.getMonth() + 1).padStart(2, '0') + '-' + String(at.getDate()).padStart(2, '0');
+    raw.history = { [today]: { correct: 50, total: 60, rounds: [{ time: at.getTime(), minutes: 3, mode: 'challenge', correct: 20, total: 25 }] } };
+    localStorage.setItem('multiply-trainer', JSON.stringify(raw));
+  });
+  await rpage.goto(APP);
+  await rpage.click('#history-btn');
+  const mixedRounds = await rpage.locator('#history-list .history-round').allTextContents();
+  const mixedExpected = ['4:15 PM · 3 min challenge20/25 80%', 'Other rounds30/35 86%'];
+  if (mixedRounds.join('|') !== mixedExpected.join('|')) fail('round lines with older totals: ' + JSON.stringify(mixedRounds));
+  else ok('older rounds without details show as "Other rounds"');
+  await rpage.click('#history-list .history-day-share');
+  const mixedCode = new URL(await rpage.locator('#share-link').inputValue()).searchParams.get('history');
+  await rpage.goto(APP + '?history=' + mixedCode);
+  await rpage.waitForTimeout(200);
+  const mixedShared = await rpage.locator('#shared-history-list .history-round').allTextContents();
+  if (mixedShared.join('|') !== mixedExpected.join('|')) fail('shared round details: ' + JSON.stringify(mixedShared));
+  else ok('round time, timer, and mode survive the link');
+
+  // Links sent before rank and round details were added still open
+  // (fixture: Maya, Oct 2-3 2026, made by the version 1 encoder)
+  await rpage.goto(APP + '?history=gxT8yPOBf3plJT9u4aREc_l_ljpXYka0Nw');
+  await rpage.waitForTimeout(200);
+  const v1 = {
+    title: await rpage.locator('#shared-title').textContent(),
+    days: await rpage.locator('#shared-history-list .history-day').allTextContents(),
+    rounds: await rpage.locator('#shared-history-list .history-round').count(),
+    rankShown: await rpage.locator('#shared-rank').isVisible(),
+  };
+  if (v1.title !== "Maya's History" || v1.days.join('|') !== 'Oct 3, 202642/45 93%|Oct 2, 202630/36 83%' || v1.rounds || v1.rankShown) fail('version 1 link: ' + JSON.stringify(v1));
+  else ok('links in the original format still open');
   await rpage.close();
+
+  // Progress over time: week-over-week tiles, chart, numbers table, and the
+  // rank ladder, all from seeded history with known answers
+  const tpage = await browser.newPage();
+  tpage.on('pageerror', (e) => errors.push(e.message));
+  await tpage.goto(APP);
+  const seedTrends = (lastPlayedAgo) => tpage.evaluate((away) => {
+    const raw = JSON.parse(localStorage.getItem('multiply-trainer'));
+    const ymd = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+    raw.history = {
+      [ymd(1)]: { correct: 45, total: 50, minutes: 5, timedCorrect: 45 },
+      [ymd(3)]: { correct: 10, total: 10 },                                // from before speed was saved
+      [ymd(9)]: { correct: 30, total: 40, minutes: 5, timedCorrect: 30 },
+    };
+    raw.masteryLog = { [ymd(10)]: 4, [ymd(8)]: 10 };
+    Object.keys(raw.facts).slice(0, 15).forEach((k) => { raw.facts[k].weight = 1; raw.facts[k].lastCorrect = Date.now(); });
+    raw.lastPracticeDate = ymd(away);
+    localStorage.setItem('multiply-trainer', JSON.stringify(raw));
+  }, lastPlayedAgo).then(() => tpage.reload()).then(() => tpage.waitForTimeout(200));
+  await seedTrends(1);
+  await tpage.click('#history-btn');
+  const tiles = await tpage.evaluate(() => ['accuracy', 'speed', 'mastered'].map((id) =>
+    document.getElementById('trend-' + id).textContent + ' ' + document.getElementById('trend-' + id + '-delta').textContent));
+  const tilesExpected = ['92% ↑ 17%', '9/min ↑ 3/min', '15 ↑ 5 this week'];
+  if (tiles.join('|') !== tilesExpected.join('|')) fail('trend tiles: ' + JSON.stringify(tiles));
+  else ok('this week vs last week: ' + tiles.join(', '));
+  const accDots = await tpage.locator('.trend-dot').count();
+  await tpage.focus('.trend-svg');
+  const tipLast = await tpage.locator('#trend-tip strong').textContent();
+  await tpage.keyboard.press('ArrowLeft');
+  const tipPrev = await tpage.locator('#trend-tip').textContent();
+  if (accDots !== 3 || tipLast !== '90%' || !/^100%.*10\/10 correct$/.test(tipPrev)) fail('accuracy chart: ' + JSON.stringify({ accDots, tipLast, tipPrev }));
+  else ok('accuracy chart plots each day; keyboard steps the tooltip (' + tipPrev + ')');
+  await tpage.click('#trend-toggle button[data-metric="speed"]');
+  const speedDots = await tpage.locator('.trend-dot').count();
+  const endLabel = await tpage.locator('.trend-end-label').textContent();
+  if (speedDots !== 2 || endLabel !== '9/min') fail('speed chart: ' + JSON.stringify({ speedDots, endLabel }));
+  else ok('speed chart skips days without timing (' + speedDots + ' days, latest ' + endLabel + ')');
+  await tpage.click('.trend-table-wrap summary');
+  const tableRows = await tpage.locator('#trend-table tbody tr').allTextContents();
+  if (tableRows.length !== 3 || !/100%—$/.test(tableRows[1])) fail('numbers table: ' + JSON.stringify(tableRows));
+  else ok('numbers table lists both metrics per day');
+
+  // Rank ladder: all ranks, current and next marked
+  await tpage.click('#history-back-btn');
+  await tpage.click('#player-level-widget');
+  const ladder = await tpage.evaluate(() => ({
+    rows: document.querySelectorAll('#rank-list .rank-row').length,
+    current: document.querySelector('.rank-row.current .rank-title').textContent,
+    next: document.querySelector('.rank-row.next .rank-title').textContent,
+    nextSub: document.querySelector('.rank-row.next .rank-sub').textContent,
+    home: document.getElementById('player-level').textContent,
+  }));
+  if (ladder.rows !== 7 || ladder.current !== 'Asteroid Miner' || !ladder.home.endsWith('Asteroid Miner') || ladder.next !== 'Nebula Navigator' || ladder.nextSub !== '8% more mastery to go') fail('rank ladder: ' + JSON.stringify(ladder));
+  else ok('rank ladder shows all 7 ranks, you are here (' + ladder.current + '), next up (' + ladder.next + ')');
+  await tpage.keyboard.press('Escape');
+  if (await tpage.locator('#rank-modal').isVisible()) fail('rank modal did not close on Escape');
+  else ok('rank modal closes');
+  // After 4 days away the rank drops; the ladder says how to win it back
+  await seedTrends(4);
+  await tpage.click('#player-level-widget');
+  const away = await tpage.evaluate(() => ({
+    note: document.getElementById('rank-note').textContent,
+    current: document.querySelector('.rank-row.current .rank-title').textContent,
+    nextSub: document.querySelector('.rank-row.next .rank-sub').textContent,
+    bar: !!document.querySelector('.rank-row.current .rank-progress'),
+  }));
+  if (!/win back .*Asteroid Miner/.test(away.note) || away.current !== 'Star Pilot' || away.nextSub !== 'Play today to win it back' || away.bar) fail('rank ladder after time away: ' + JSON.stringify(away));
+  else ok('rank ladder after time away offers a win-back');
+  await tpage.close();
 
   // Sound pauses whenever the app is hidden or loses focus
   const apage = await browser.newPage();

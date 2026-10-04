@@ -607,6 +607,7 @@
     endTime: null,
     sandboxMode: false,
     sandboxFactKeys: null,
+    roundMinutes: null,
     roundId: 0,
     advancing: false,
   };
@@ -641,6 +642,7 @@
       lastTitle: null,
       lastRound: null,
       name: null,
+      masteryLog: {},
     };
   }
 
@@ -673,6 +675,7 @@
           lastTitle: parsed.lastTitle || null,
           lastRound: parsed.lastRound || null,
           name: cleanName(parsed.name),
+          masteryLog: parsed.masteryLog || {},
         };
         // Migrate from 78-fact (canonical) to 144-fact format
         migrateToFullFacts();
@@ -871,15 +874,16 @@
     return 0;
   }
 
-  function getPlayerLevel() {
-    var pct = getMasteryScore();
-    var levelIndex = 0;
-    for (var i = LEVELS.length - 1; i >= 0; i--) {
-      if (pct >= LEVELS[i].min) {
-        levelIndex = i;
-        break;
-      }
+  // The rank a mastery score earns, before any inactivity decay
+  function earnedLevelIndex(pct) {
+    for (var i = LEVELS.length - 1; i > 0; i--) {
+      if (pct >= LEVELS[i].min) return i;
     }
+    return 0;
+  }
+
+  function getPlayerLevel() {
+    var levelIndex = earnedLevelIndex(getMasteryScore());
 
     // Decay: lose 1 level per 2 days inactive, never below Star Pilot (index 1)
     // and never above the earned level (a Space Cadet stays a Space Cadet)
@@ -1206,6 +1210,7 @@
     session.endTime = null;
     session.sandboxMode = false;
     session.sandboxFactKeys = null;
+    session.roundMinutes = null;
     session.correct = 0;
     session.total = 0;
     session.streak = 0;
@@ -1246,6 +1251,7 @@
 
   function startSession() {
     resetSessionState();
+    session.roundMinutes = data.settings.timerMinutes;
     session.timerSeconds = data.settings.timerMinutes * 60;
     beginRound();
   }
@@ -1255,6 +1261,7 @@
     session.challengeMode = true;
     session.challengeConfig = config;
     session.challengeSequence = buildChallengeSequence(config.seed, config.factMask);
+    session.roundMinutes = config.roundMinutes;
     session.endTime = config.startTime + config.roundMinutes * 60000;
     session.timerSeconds = Math.max(0, Math.ceil((session.endTime - Date.now()) / 1000));
     beginRound();
@@ -1317,6 +1324,21 @@
       }
       data.history[today].correct += session.correct;
       data.history[today].total += session.total;
+      // Minutes and the correct answers made in them, for correct-per-minute
+      // trends (days from before these were recorded have neither)
+      data.history[today].minutes = (data.history[today].minutes || 0) + elapsedMinutes;
+      data.history[today].timedCorrect = (data.history[today].timedCorrect || 0) + session.correct;
+      // Per-round details (days from before these existed only have totals)
+      if (!Array.isArray(data.history[today].rounds)) data.history[today].rounds = [];
+      data.history[today].rounds.push({
+        time: Date.now(),
+        minutes: session.roundMinutes,
+        mode: session.challengeMode ? 'challenge' : 'game',
+        correct: session.correct,
+        total: session.total,
+        rate: rate,
+      });
+      recordMastery();
 
       // Daily streak
       if (data.lastPracticeDate) {
@@ -1413,6 +1435,25 @@
     return 'none';
   }
 
+  // How many facts are mastered (gold) right now
+  function countMastered() {
+    var n = 0;
+    for (var key in data.facts) if (masteryLevel(data.facts[key]) === 'gold') n++;
+    return n;
+  }
+
+  // One mastered-facts count per day (the latest of that day), so History
+  // can show "+6 this week". Decay can lower it, so it is also logged on load.
+  var MASTERY_LOG_DAYS = 400;
+  function recordMastery() {
+    var today = todayLocal();
+    data.masteryLog[today] = countMastered();
+    for (var date in data.masteryLog) {
+      if (daysSince(date) > MASTERY_LOG_DAYS) delete data.masteryLog[date];
+    }
+    saveData();
+  }
+
   function renderProgressGrid() {
     var table = document.getElementById('progress-grid');
     table.innerHTML = '';
@@ -1466,11 +1507,41 @@
     return card;
   }
 
-  // rows: [{ date, correct, total }]. onShare(date), when given, adds a
-  // share button to each row.
+  function formatClock(minuteOfDay) {
+    var h = Math.floor(minuteOfDay / 60), m = minuteOfDay % 60;
+    return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + (h < 12 ? ' AM' : ' PM');
+  }
+
+  function statsSpan(correct, total) {
+    var span = document.createElement('span');
+    span.className = 'history-stats';
+    span.textContent = correct + '/' + total + ' ';
+    var acc = document.createElement('span');
+    acc.className = 'history-accuracy';
+    acc.textContent = percent(correct, total) + '%';
+    span.appendChild(acc);
+    return span;
+  }
+
+  function roundLine(label, correct, total) {
+    var line = document.createElement('div');
+    line.className = 'history-round';
+    var labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    line.appendChild(labelSpan);
+    line.appendChild(statsSpan(correct, total));
+    return line;
+  }
+
+  // rows: [{ date, correct, total, rounds: [{ minuteOfDay, minutes, mode,
+  // correct, total }] }], rounds newest first. Rounds without details
+  // (played before they were recorded) show as one "Other rounds" line.
+  // onShare(date), when given, adds a share button to each day.
   function renderHistoryRows(container, rows, onShare) {
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
+      var group = document.createElement('div');
+      group.className = 'history-day-group';
       var div = document.createElement('div');
       div.className = 'history-day';
 
@@ -1478,16 +1549,8 @@
       dateSpan.className = 'history-date';
       dateSpan.textContent = formatDate(row.date);
 
-      var statsSpan = document.createElement('span');
-      statsSpan.className = 'history-stats';
-      statsSpan.textContent = row.correct + '/' + row.total + ' ';
-      var accSpan = document.createElement('span');
-      accSpan.className = 'history-accuracy';
-      accSpan.textContent = percent(row.correct, row.total) + '%';
-      statsSpan.appendChild(accSpan);
-
       div.appendChild(dateSpan);
-      div.appendChild(statsSpan);
+      div.appendChild(statsSpan(row.correct, row.total));
       if (onShare) {
         var btn = document.createElement('button');
         btn.className = 'history-day-share';
@@ -1498,12 +1561,40 @@
         btn.addEventListener('click', function () { onShare(this.dataset.date); });
         div.appendChild(btn);
       }
-      container.appendChild(div);
+      group.appendChild(div);
+
+      if (row.rounds.length) {
+        var roundsEl = document.createElement('div');
+        roundsEl.className = 'history-rounds';
+        var otherCorrect = row.correct, otherTotal = row.total;
+        for (var r = 0; r < row.rounds.length; r++) {
+          var rd = row.rounds[r];
+          otherCorrect -= rd.correct;
+          otherTotal -= rd.total;
+          roundsEl.appendChild(roundLine(
+            formatClock(rd.minuteOfDay) + ' · ' + rd.minutes + ' min ' + (rd.mode === 'challenge' ? 'challenge' : 'round'),
+            rd.correct, rd.total));
+        }
+        if (otherTotal > 0) roundsEl.appendChild(roundLine('Other rounds', Math.max(0, otherCorrect), otherTotal));
+        group.appendChild(roundsEl);
+      }
+      container.appendChild(group);
     }
   }
 
+  // Saved history -> display rows (stored rounds are oldest first)
   function historyRow(date) {
-    return { date: date, correct: data.history[date].correct, total: data.history[date].total };
+    var entry = data.history[date];
+    var rounds = Array.isArray(entry.rounds) ? entry.rounds.slice().reverse() : [];
+    return {
+      date: date,
+      correct: entry.correct,
+      total: entry.total,
+      rounds: rounds.map(function (rd) {
+        var t = new Date(rd.time);
+        return { minuteOfDay: t.getHours() * 60 + t.getMinutes(), minutes: rd.minutes, mode: rd.mode, correct: rd.correct, total: rd.total };
+      }),
+    };
   }
 
   // Dates played in the last 7 days (today included), newest first
@@ -1516,6 +1607,7 @@
 
   function renderHistory() {
     document.getElementById('history-title').textContent = data.name ? data.name + '\'s History' : 'History';
+    renderTrends();
     var container = document.getElementById('history-list');
     container.innerHTML = '';
     var summaryEl = document.getElementById('history-summary');
@@ -1548,12 +1640,253 @@
     });
   }
 
+  // --- Progress Over Time (History screen) ---
+  // Stat tiles compare this week (the last 7 days) with the 7 days before;
+  // the chart plots one metric at a time (accuracy or speed never share an
+  // axis) for the most recent days played.
+  var TREND_DAYS = 14;
+  var trendMetric = 'accuracy';
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function ymdDaysAgo(n) {
+    var d = new Date(todayLocal() + 'T00:00:00');
+    d.setDate(d.getDate() - n);
+    return formatYMD(d);
+  }
+
+  function shortDate(ymd) {
+    return formatDate(ymd).replace(/, \d+$/, '');
+  }
+
+  function dayRate(entry) {
+    return entry.minutes > 0 ? Math.round((entry.timedCorrect || 0) / entry.minutes * 10) / 10 : null;
+  }
+
+  // Accuracy and speed for days played from fromAgo to toAgo days ago
+  function periodTotals(fromAgo, toAgo) {
+    var start = ymdDaysAgo(fromAgo), end = ymdDaysAgo(toAgo);
+    var correct = 0, total = 0, timedCorrect = 0, minutes = 0;
+    for (var date in data.history) {
+      if (date < start || date > end) continue;
+      var e = data.history[date];
+      correct += e.correct;
+      total += e.total;
+      if (e.minutes > 0) {
+        timedCorrect += e.timedCorrect || 0;
+        minutes += e.minutes;
+      }
+    }
+    return {
+      accuracy: total > 0 ? percent(correct, total) : null,
+      rate: minutes > 0 ? Math.round(timedCorrect / minutes * 10) / 10 : null,
+    };
+  }
+
+  // The mastered count to compare today's with: the latest log entry at least
+  // a week old, else the earliest one before today
+  function masteredBaseline() {
+    var weekAgo = ymdDaysAgo(7), today = todayLocal();
+    var dates = Object.keys(data.masteryLog).sort();
+    var found = null;
+    for (var i = 0; i < dates.length; i++) if (dates[i] <= weekAgo) found = dates[i];
+    if (!found && dates.length && dates[0] < today) found = dates[0];
+    return found ? { date: found, count: data.masteryLog[found] } : null;
+  }
+
+  // Fills one tile. delta: number or null; fmt formats its size.
+  function setTrendTile(id, value, delta, fmt, noBaseline, suffix) {
+    document.getElementById(id).textContent = value;
+    var el = document.getElementById(id + '-delta');
+    if (delta === null) {
+      el.className = 'trend-delta';
+      el.textContent = noBaseline;
+      return;
+    }
+    var up = delta > 0, down = delta < 0;
+    el.className = 'trend-delta' + (up ? ' up' : '');
+    el.textContent = up ? '↑ ' + fmt(delta) + suffix : down ? '↓ ' + fmt(-delta) + suffix : 'Same as before';
+  }
+
+  function renderTrends() {
+    var hasHistory = Object.keys(data.history).length > 0;
+    document.getElementById('progress-trends').style.display = hasHistory ? '' : 'none';
+    if (!hasHistory) return;
+
+    var now = periodTotals(6, 0), before = periodTotals(13, 7);
+    setTrendTile('trend-accuracy', now.accuracy === null ? '—' : now.accuracy + '%',
+      now.accuracy !== null && before.accuracy !== null ? now.accuracy - before.accuracy : null,
+      function (d) { return d + '%'; }, now.accuracy === null ? 'Play this week!' : 'New this week', '');
+    setTrendTile('trend-speed', now.rate === null ? '—' : now.rate + '/min',
+      now.rate !== null && before.rate !== null ? Math.round((now.rate - before.rate) * 10) / 10 : null,
+      function (d) { return d + '/min'; }, now.rate === null ? 'Finish a round!' : 'New this week', '');
+
+    var mastered = countMastered();
+    var base = masteredBaseline();
+    setTrendTile('trend-mastered', String(mastered), base ? mastered - base.count : null,
+      function (d) { return String(d); }, 'Keep going!',
+      base && daysSince(base.date) >= 7 ? ' this week' : base ? ' since ' + shortDate(base.date) : '');
+
+    renderTrendChart();
+  }
+
+  function trendPoints(metric) {
+    var pts = [];
+    var dates = Object.keys(data.history).sort();
+    for (var i = 0; i < dates.length; i++) {
+      var e = data.history[dates[i]];
+      if (metric === 'accuracy' && e.total > 0) {
+        pts.push({ date: dates[i], value: percent(e.correct, e.total), detail: e.correct + '/' + e.total + ' correct' });
+      } else if (metric === 'speed' && dayRate(e) !== null) {
+        pts.push({ date: dates[i], value: dayRate(e), detail: Math.round(e.minutes) + ' min played' });
+      }
+    }
+    return pts.slice(-TREND_DAYS);
+  }
+
+  function svgEl(tag, attrs, text) {
+    var el = document.createElementNS(SVG_NS, tag);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
+
+  // The numbers behind the chart, both metrics, newest first
+  function renderTrendTable() {
+    var body = document.querySelector('#trend-table tbody');
+    body.innerHTML = '';
+    var dates = Object.keys(data.history).sort().reverse().slice(0, TREND_DAYS);
+    for (var i = 0; i < dates.length; i++) {
+      var e = data.history[dates[i]];
+      var tr = document.createElement('tr');
+      var cells = [shortDate(dates[i]), e.total > 0 ? percent(e.correct, e.total) + '%' : '—',
+        dayRate(e) === null ? '—' : dayRate(e) + '/min'];
+      for (var c = 0; c < cells.length; c++) {
+        var td = document.createElement(c === 0 ? 'th' : 'td');
+        td.textContent = cells[c];
+        tr.appendChild(td);
+      }
+      body.appendChild(tr);
+    }
+  }
+
+  function renderTrendChart() {
+    renderTrendTable();
+    var box = document.getElementById('trend-chart');
+    var note = document.getElementById('trend-chart-note');
+    var tip = document.getElementById('trend-tip');
+    box.innerHTML = '';
+    tip.style.display = 'none';
+    var isAcc = trendMetric === 'accuracy';
+    var fmt = function (v) { return isAcc ? v + '%' : v + '/min'; };
+    var pts = trendPoints(trendMetric);
+
+    if (pts.length < 2) {
+      box.style.display = 'none';
+      note.textContent = pts.length ? 'Play on another day to start your trend line!' :
+        isAcc ? 'Answer some problems to start your chart!' : 'Finish a full round to start your speed chart!';
+      return;
+    }
+    box.style.display = '';
+    note.textContent = isAcc ? 'Accuracy on each day you played' : 'Correct answers per minute on each day you played';
+
+    var W = 320, H = 170, m = { l: 34, r: 46, t: 12, b: 24 };
+    var plotW = W - m.l - m.r, plotH = H - m.t - m.b;
+    var maxVal = 0;
+    for (var i = 0; i < pts.length; i++) maxVal = Math.max(maxVal, pts[i].value);
+    var yMax = isAcc ? 100 : Math.max(2, Math.ceil(maxVal / 2) * 2);
+    var x = function (i) { return m.l + i * plotW / (pts.length - 1); };
+    var y = function (v) { return m.t + plotH - v / yMax * plotH; };
+
+    var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'trend-svg', tabindex: '0', role: 'img',
+      'aria-label': (isAcc ? 'Accuracy' : 'Speed') + ' chart: ' + fmt(pts[0].value) + ' on ' + formatDate(pts[0].date) +
+        ' to ' + fmt(pts[pts.length - 1].value) + ' on ' + formatDate(pts[pts.length - 1].date) + '. Use arrow keys to step through days.' });
+
+    var ticks = [0, yMax / 2, yMax];
+    for (var t = 0; t < ticks.length; t++) {
+      svg.appendChild(svgEl('line', { x1: m.l, x2: W - m.r, y1: y(ticks[t]), y2: y(ticks[t]), class: 'trend-grid' }));
+      svg.appendChild(svgEl('text', { x: m.l - 6, y: y(ticks[t]) + 3.5, 'text-anchor': 'end', class: 'trend-axis' },
+        isAcc ? ticks[t] + '%' : String(ticks[t])));
+    }
+    svg.appendChild(svgEl('text', { x: m.l, y: H - 6, 'text-anchor': 'start', class: 'trend-axis' }, shortDate(pts[0].date)));
+    svg.appendChild(svgEl('text', { x: x(pts.length - 1), y: H - 6, 'text-anchor': 'end', class: 'trend-axis' }, shortDate(pts[pts.length - 1].date)));
+
+    var line = '', area = '';
+    for (var i = 0; i < pts.length; i++) line += (i ? ' L' : 'M') + x(i).toFixed(1) + ',' + y(pts[i].value).toFixed(1);
+    area = line + ' L' + x(pts.length - 1).toFixed(1) + ',' + y(0) + ' L' + x(0).toFixed(1) + ',' + y(0) + ' Z';
+    svg.appendChild(svgEl('path', { d: area, class: 'trend-area' }));
+    svg.appendChild(svgEl('path', { d: line, class: 'trend-line' }));
+    var crosshair = svgEl('line', { y1: m.t, y2: m.t + plotH, class: 'trend-crosshair', visibility: 'hidden' });
+    svg.appendChild(crosshair);
+    var dots = [];
+    for (var i = 0; i < pts.length; i++) {
+      var dot = svgEl('circle', { cx: x(i), cy: y(pts[i].value), r: 4, class: 'trend-dot' });
+      dots.push(dot);
+      svg.appendChild(dot);
+    }
+    // Direct label on the latest value only
+    var last = pts.length - 1;
+    svg.appendChild(svgEl('text', { x: x(last) + 8, y: y(pts[last].value) + 4, class: 'trend-end-label' }, fmt(pts[last].value)));
+
+    var selected = -1;
+    function select(i) {
+      if (selected >= 0) dots[selected].setAttribute('r', 4);
+      selected = i;
+      if (i < 0) {
+        crosshair.setAttribute('visibility', 'hidden');
+        tip.style.display = 'none';
+        return;
+      }
+      dots[i].setAttribute('r', 6);
+      crosshair.setAttribute('x1', x(i));
+      crosshair.setAttribute('x2', x(i));
+      crosshair.setAttribute('visibility', 'visible');
+      tip.innerHTML = '';
+      var strong = document.createElement('strong');
+      strong.textContent = fmt(pts[i].value);
+      var sub = document.createElement('span');
+      sub.textContent = formatDate(pts[i].date) + ' · ' + pts[i].detail;
+      tip.appendChild(strong);
+      tip.appendChild(sub);
+      tip.style.left = Math.min(80, Math.max(20, x(i) / W * 100)) + '%';
+      tip.style.display = '';
+    }
+    function pointerIndex(e) {
+      var rect = svg.getBoundingClientRect();
+      var px = (e.clientX - rect.left) * W / rect.width;
+      return Math.max(0, Math.min(last, Math.round((px - m.l) / (plotW / last))));
+    }
+    svg.addEventListener('pointermove', function (e) { select(pointerIndex(e)); });
+    svg.addEventListener('pointerdown', function (e) { select(pointerIndex(e)); });
+    svg.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') select(-1); });
+    svg.addEventListener('focus', function () { if (selected < 0) select(last); });
+    svg.addEventListener('blur', function () { select(-1); });
+    svg.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowLeft') { select(Math.max(0, selected - 1)); e.preventDefault(); }
+      if (e.key === 'ArrowRight') { select(Math.min(last, selected + 1)); e.preventDefault(); }
+    });
+    box.appendChild(svg);
+  }
+
+  document.getElementById('trend-toggle').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-metric]');
+    if (!btn) return;
+    trendMetric = btn.dataset.metric;
+    var btns = this.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('selected', btns[i] === btn);
+      btns[i].setAttribute('aria-pressed', btns[i] === btn ? 'true' : 'false');
+    }
+    renderTrendChart();
+  });
+
   // --- Shared History Links ---
-  // ?history=<code> carries the chosen days plus the player's name. The bytes
-  // are scrambled with a keystream seeded by their CRC-32, and the checksum is
-  // checked on open: the name can't be read off the link, and an edited link
-  // (say, one with a friend's name swapped in) is rejected.
-  var HISTORY_LINK_VERSION = 1;
+  // ?history=<code> carries the chosen days plus the player's name and rank.
+  // The bytes are scrambled with a keystream seeded by their CRC-32, and the
+  // checksum is checked on open: the name can't be read off the link, and an
+  // edited link (say, one with a friend's name swapped in) is rejected.
+  // Version 1 links (no rank, no per-round details) still open.
+  var HISTORY_LINK_VERSION = 2;
+  var LINK_ROUNDS_PER_DAY = 10; // newest first; the rest show as "Other rounds"
   var DAY_MS = 86400000;
 
   function crc32(bytes) {
@@ -1589,21 +1922,34 @@
     return Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
   }
 
-  // [version][shared-on day u16][name length][name UTF-8][day count]
-  // [per day: day u16, correct u16, total u16], scrambled, then CRC-32
+  // v2: [version][shared-on day u16][rank index][name length][name UTF-8]
+  // [day count] then per day: [day u16][correct u16][total u16][round count]
+  // and per round: [minute of day (11 bits) | minutes-1 (3) | challenge (1)
+  // as u16][correct u16][total u16]. Scrambled, then CRC-32 appended.
+  // (v1 had no rank byte and no round count or rounds.)
   function encodeHistoryLink(dates) {
     var bytes = [HISTORY_LINK_VERSION];
     function u16(n) { n = Math.max(0, Math.min(65535, n)); bytes.push(n >> 8, n & 0xFF); }
     u16(dayNumber(todayLocal()));
+    bytes.push(LEVELS.indexOf(getPlayerLevel()));
     var name = data.name ? Array.from(new TextEncoder().encode(data.name)) : [];
     bytes.push(name.length);
     bytes = bytes.concat(name);
     bytes.push(dates.length);
     for (var i = 0; i < dates.length; i++) {
-      var entry = data.history[dates[i]];
-      u16(dayNumber(dates[i]));
-      u16(entry.correct);
-      u16(entry.total);
+      var row = historyRow(dates[i]);
+      u16(dayNumber(row.date));
+      u16(row.correct);
+      u16(row.total);
+      var rounds = row.rounds.slice(0, LINK_ROUNDS_PER_DAY);
+      bytes.push(rounds.length);
+      for (var r = 0; r < rounds.length; r++) {
+        var rd = rounds[r];
+        var mins = Math.max(1, Math.min(8, rd.minutes || 1));
+        u16((rd.minuteOfDay << 4) | ((mins - 1) << 1) | (rd.mode === 'challenge' ? 1 : 0));
+        u16(rd.correct);
+        u16(rd.total);
+      }
     }
     var crc = crc32(bytes);
     var out = scrambleBytes(bytes, crc);
@@ -1611,7 +1957,7 @@
     return toBase64Url(out);
   }
 
-  // Returns { name, sharedOn, days: [{ date, correct, total }] } or null
+  // Returns { name, rank (LEVELS entry or null), sharedOn, days: [rows] } or null
   function decodeHistoryLink(code) {
     try {
       var bytes = fromBase64Url(code);
@@ -1627,20 +1973,40 @@
         return plain[pos++];
       };
       var u16 = function () { return u8() * 256 + u8(); };
-      if (u8() !== HISTORY_LINK_VERSION) return null;
+      var version = u8();
+      if (version !== 1 && version !== 2) return null;
       var sharedOn = dayToYMD(u16());
+      var rank = null;
+      if (version >= 2) {
+        rank = LEVELS[u8()];
+        if (!rank) return null;
+      }
       var nameLen = u8();
       if (pos + nameLen > plain.length) return null;
       var name = cleanName(new TextDecoder().decode(new Uint8Array(plain.slice(pos, pos + nameLen))));
       pos += nameLen;
       var days = [];
       for (var count = u8(); count > 0; count--) {
-        var row = { date: dayToYMD(u16()), correct: u16(), total: u16() };
+        var row = { date: dayToYMD(u16()), correct: u16(), total: u16(), rounds: [] };
         if (row.correct > row.total) return null;
+        if (version >= 2) {
+          for (var n = u8(); n > 0; n--) {
+            var packed = u16();
+            var rd = {
+              minuteOfDay: packed >> 4,
+              minutes: ((packed >> 1) & 7) + 1,
+              mode: (packed & 1) ? 'challenge' : 'game',
+              correct: u16(),
+              total: u16(),
+            };
+            if (rd.minuteOfDay >= 1440 || rd.correct > rd.total) return null;
+            row.rounds.push(rd);
+          }
+        }
         days.push(row);
       }
       if (pos !== plain.length) return null;
-      return { name: name, sharedOn: sharedOn, days: days };
+      return { name: name, rank: rank, sharedOn: sharedOn, days: days };
     } catch (e) {
       return null;
     }
@@ -1682,6 +2048,7 @@
     var shared = decodeHistoryLink(code);
     var title = document.getElementById('shared-title');
     var by = document.getElementById('shared-by');
+    var rankEl = document.getElementById('shared-rank');
     var on = document.getElementById('shared-on');
     var summaryEl = document.getElementById('shared-history-summary');
     var list = document.getElementById('shared-history-list');
@@ -1692,10 +2059,12 @@
     if (!shared) {
       title.textContent = 'Shared History';
       by.textContent = 'This history link is broken or was changed, so it can\'t be shown.';
+      rankEl.textContent = '';
       on.textContent = '';
     } else {
       title.textContent = shared.name ? shared.name + '\'s History' : 'Shared History';
       by.textContent = shared.name ? 'Shared by ' + shared.name : 'Shared by a player who hasn\'t added a name';
+      rankEl.textContent = shared.rank ? 'Rank: ' + shared.rank.badge + ' ' + shared.rank.title : '';
       on.textContent = 'Sent ' + formatDate(shared.sharedOn);
       var correct = 0, total = 0;
       for (var i = 0; i < shared.days.length; i++) {
@@ -1953,7 +2322,7 @@
       initFacts(); // ensure all 144 exist
     }
 
-    saveData();
+    recordMastery();
     renderHome();
     return null; // success
   }
@@ -2078,6 +2447,7 @@
     data = defaults();
     data.name = name;
     initFacts();
+    recordMastery();
     saveData();
     renderHome();
     closeResetModal();
@@ -2133,6 +2503,85 @@
     showScreen('home');
   });
 
+  // Rank ladder: every rank, top rank first, marking where the player is
+  // and where they're headed
+  var rankModal = document.getElementById('rank-modal');
+
+  function openRankModal() {
+    var pct = getMasteryScore();
+    var current = LEVELS.indexOf(getPlayerLevel());
+    var earned = earnedLevelIndex(pct);
+    var next = current + 1 < LEVELS.length ? current + 1 : -1;
+    document.getElementById('rank-mastery').textContent = 'Your mastery score: ' + pct + '%';
+    var note = document.getElementById('rank-note');
+    note.textContent = earned > current ? 'You\'ve been away! Play a round today to win back ' +
+      LEVELS[earned].badge + ' ' + LEVELS[earned].title + '.' : next === -1 ? 'You reached the top rank!' : '';
+    note.style.display = note.textContent ? '' : 'none';
+
+    var list = document.getElementById('rank-list');
+    list.innerHTML = '';
+    for (var i = LEVELS.length - 1; i >= 0; i--) {
+      var li = document.createElement('li');
+      li.className = 'rank-row' + (i < current ? ' reached' : i === current ? ' current' : i === next ? ' next' :
+        i <= earned ? ' winback' : ' locked');
+      var badge = document.createElement('span');
+      badge.className = 'rank-badge';
+      badge.textContent = LEVELS[i].badge;
+      var info = document.createElement('span');
+      info.className = 'rank-info';
+      var title = document.createElement('span');
+      title.className = 'rank-title';
+      title.textContent = LEVELS[i].title;
+      var sub = document.createElement('span');
+      sub.className = 'rank-sub';
+      if (i > current && i <= earned) sub.textContent = 'Play today to win it back';
+      else if (i === next) sub.textContent = (LEVELS[i].min - pct) + '% more mastery to go';
+      else sub.textContent = LEVELS[i].min === 0 ? 'Where every pilot starts' : 'Unlocks at ' + LEVELS[i].min + '% mastery';
+      info.appendChild(title);
+      info.appendChild(sub);
+      // Progress toward the next rank (moot while ranks wait to be won back)
+      if (i === current && next !== -1 && earned === current) {
+        var bar = document.createElement('span');
+        bar.className = 'rank-progress';
+        var fill = document.createElement('span');
+        var span = LEVELS[next].min - LEVELS[current].min;
+        fill.style.width = Math.max(0, Math.min(100, Math.round((pct - LEVELS[current].min) / span * 100))) + '%';
+        bar.appendChild(fill);
+        info.appendChild(bar);
+      }
+      li.appendChild(badge);
+      li.appendChild(info);
+      var chipText = i === current ? 'You\'re here' : i === next ? 'Next up' : i < current ? '✓' : '';
+      if (chipText) {
+        var chip = document.createElement('span');
+        chip.className = 'rank-chip';
+        chip.textContent = chipText;
+        if (i < current) chip.setAttribute('aria-label', 'Reached');
+        li.appendChild(chip);
+      }
+      list.appendChild(li);
+    }
+    rankModal.style.display = '';
+    document.getElementById('rank-close-btn').focus();
+  }
+
+  function closeRankModal() {
+    rankModal.style.display = 'none';
+  }
+
+  var rankWidget = document.getElementById('player-level-widget');
+  rankWidget.addEventListener('click', openRankModal);
+  rankWidget.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openRankModal();
+    }
+  });
+  document.getElementById('rank-close-btn').addEventListener('click', closeRankModal);
+  rankModal.addEventListener('click', function (e) {
+    if (e.target === rankModal) closeRankModal();
+  });
+
   // Player name (optional): Save with an empty box clears it
   var nameModal = document.getElementById('name-modal');
   var nameInput = document.getElementById('name-input');
@@ -2166,6 +2615,7 @@
     if (e.key !== 'Escape') return;
     if (shareModal.style.display !== 'none') closeShareModal();
     if (nameModal.style.display !== 'none') closeNameModal();
+    if (rankModal.style.display !== 'none') closeRankModal();
   });
 
   // Weakest facts navigation
@@ -2536,6 +2986,7 @@
   function init() {
     loadData();
     initFacts();
+    recordMastery();
     renderHome();
     showScreen('home');
     generateStars();

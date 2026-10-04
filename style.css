@@ -1,4 +1,6 @@
 :root {
+  --chart-line: #9479F2; /* passes the dataviz checks on --surface */
+  --surface: #171429;
   --primary: #A78BFA;
   --primary-dark: #7C3AED;
   --correct: #34D399;
@@ -177,6 +179,18 @@ h2 {
 .player-level-widget {
   text-align: center;
   margin-bottom: 4px;
+  cursor: pointer;
+  border-radius: 14px;
+  padding: 6px 10px;
+}
+.player-level-widget:focus-visible {
+  outline: 2px solid var(--primary);
+}
+.rank-hint {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.4);
+  margin-top: 2px;
 }
 
 .player-level {
@@ -823,6 +837,30 @@ h2 {
   cursor: pointer;
 }
 
+.history-day-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 16px 2px 28px;
+}
+
+.history-round {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.55);
+}
+.history-round .history-stats {
+  font-size: 0.85rem;
+}
+
 .history-empty {
   text-align: center;
   color: rgba(255,255,255,0.5);
@@ -843,6 +881,14 @@ h2 {
 }
 .shared-by.shared-error {
   color: var(--wrong);
+}
+.shared-rank {
+  font-weight: 900;
+  color: var(--text);
+  margin-top: -8px;
+}
+.shared-rank:empty {
+  display: none;
 }
 #shared-on {
   margin-top: -8px;
@@ -1167,4 +1213,290 @@ h2 {
     animation: none;
     opacity: var(--lo);
   }
+}
+
+/* Progress over time (History screen) */
+.progress-trends {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.progress-trends h2 {
+  text-align: center;
+}
+.trend-caption {
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.5);
+  margin-top: -6px;
+}
+.trend-tiles {
+  display: flex;
+  gap: 8px;
+}
+.trend-tile {
+  flex: 1;
+  min-width: 0;
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 12px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.trend-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.trend-value {
+  font-size: 1.3rem;
+  font-weight: 900;
+  color: #fff;
+}
+.trend-delta {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.55);
+}
+.trend-delta.up {
+  color: var(--correct);
+}
+.trend-card {
+  background: var(--surface);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trend-toggle {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.trend-toggle button {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(167,139,250,0.4);
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+}
+.trend-toggle button.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.trend-chart-note {
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.6);
+}
+.trend-chart-wrap {
+  position: relative;
+  padding-top: 44px; /* room for the tooltip above the plot */
+}
+.trend-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: pan-y;
+  outline: none;
+}
+.trend-svg:focus-visible {
+  outline: 2px solid var(--primary);
+  border-radius: 6px;
+}
+.trend-grid {
+  stroke: rgba(255,255,255,0.1);
+  stroke-width: 1;
+}
+.trend-axis {
+  fill: rgba(255,255,255,0.5);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.trend-area {
+  fill: var(--chart-line);
+  opacity: 0.1;
+}
+.trend-line {
+  fill: none;
+  stroke: var(--chart-line);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.trend-dot {
+  fill: var(--chart-line);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.trend-crosshair {
+  stroke: rgba(255,255,255,0.35);
+  stroke-width: 1;
+}
+.trend-end-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 900;
+}
+.trend-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  background: #231f3d;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  padding: 4px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.65);
+}
+.trend-tip strong {
+  font-size: 1rem;
+  font-weight: 900;
+  color: #fff;
+}
+.trend-table-wrap summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--primary);
+  text-align: center;
+}
+.trend-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.trend-table th,
+.trend-table td {
+  padding: 4px 6px;
+  text-align: right;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.trend-table th:first-child,
+.trend-table tbody th {
+  text-align: left;
+}
+.trend-table thead th {
+  color: rgba(255,255,255,0.5);
+}
+
+/* Rank ladder modal */
+.rank-card {
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.rank-note {
+  color: var(--mastery-bronze);
+  font-size: 0.9rem;
+}
+.rank-how {
+  font-size: 0.85rem;
+}
+.rank-list {
+  list-style: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rank-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: rgba(255,255,255,0.04);
+  text-align: left;
+}
+.rank-row.locked {
+  opacity: 0.45;
+}
+.rank-row.winback {
+  opacity: 0.75;
+}
+.rank-row.current {
+  border-color: var(--primary);
+  background: rgba(167,139,250,0.16);
+}
+.rank-row.next {
+  border-color: rgba(167,139,250,0.4);
+  border-style: dashed;
+}
+.rank-badge {
+  font-size: 1.6rem;
+  width: 2rem;
+  text-align: center;
+}
+.rank-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rank-title {
+  font-weight: 900;
+  font-size: 1rem;
+}
+.rank-sub {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.55);
+}
+.rank-progress {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(167,139,250,0.2);
+  overflow: hidden;
+  margin-top: 2px;
+}
+.rank-progress span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+}
+.rank-chip {
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: rgba(167,139,250,0.15);
+}
+.rank-row.current .rank-chip {
+  background: var(--primary);
+  color: #fff;
+}
+.rank-row.reached .rank-chip {
+  color: var(--correct);
+  background: rgba(52,211,153,0.12);
 }
