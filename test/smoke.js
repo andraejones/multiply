@@ -564,6 +564,87 @@ function ok(msg) { console.log('ok: ' + msg); }
   else ok('rank ladder after time away offers a win-back');
   await tpage.close();
 
+  // Challenge links open an accept dialog with a live countdown and the
+  // player's name. Make a code that starts in a minute, then open it as a link.
+  const cpage = await browser.newPage();
+  cpage.on('pageerror', (e) => errors.push(e.message));
+  await cpage.goto(APP);
+  await cpage.click('#challenge-btn');
+  await cpage.click('#generate-code-btn');
+  const inviteCode = (await cpage.locator('#challenge-show-code').textContent()).trim();
+  await cpage.click('#challenge-cancel-btn');
+  await cpage.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('multiply-trainer'));
+    raw.name = 'Maya';
+    localStorage.setItem('multiply-trainer', JSON.stringify(raw));
+  });
+  await cpage.goto(APP + '?code=' + inviteCode);
+  await cpage.waitForTimeout(300);
+  const invite = {
+    open: await cpage.locator('#challenge-invite-modal').isVisible(),
+    title: await cpage.locator('#invite-title').textContent(),
+    details: await cpage.locator('#invite-details').textContent(),
+    countdown: await cpage.locator('#invite-countdown').textContent(),
+    name: await cpage.locator('#invite-name').inputValue(),
+    query: await cpage.evaluate(() => location.search),
+  };
+  await cpage.waitForTimeout(1300);
+  const countdownLater = await cpage.locator('#invite-countdown').textContent();
+  if (!invite.open || invite.title !== "You've been challenged!" || invite.details !== '1 min round · All facts' ||
+    !/^0[01]:\d\d$/.test(invite.countdown) || invite.name !== 'Maya' || invite.query || countdownLater === invite.countdown) fail('challenge invite: ' + JSON.stringify({ ...invite, countdownLater }));
+  else ok('challenge link opens the invite with a live countdown (' + invite.countdown + ' -> ' + countdownLater + ')');
+  await cpage.fill('#invite-name', 'Sam');
+  await cpage.click('#invite-accept-btn');
+  const accepted = {
+    wait: await cpage.locator('section#challenge-wait.active').count(),
+    code: (await cpage.locator('#challenge-show-code').textContent()).trim(),
+    greeting: await cpage.locator('#name-btn').textContent(),
+  };
+  if (accepted.wait !== 1 || accepted.code !== inviteCode || !accepted.greeting.startsWith('Hi, Sam!')) fail('accepting the invite: ' + JSON.stringify(accepted));
+  else ok('accepting saves the new name and waits for the start');
+  await cpage.close();
+
+  // Already running: join late with the time left shown. Over: no way to join.
+  const challengeAt = async (msFromNow) => {
+    const p = await browser.newPage();
+    p.on('pageerror', (e) => errors.push(e.message));
+    await p.clock.install({ time: Date.now() + msFromNow });
+    await p.goto(APP + '?code=' + inviteCode);
+    await p.waitForTimeout(300);
+    return p;
+  };
+  const running = await challengeAt(75000);
+  const runningState = {
+    title: await running.locator('#invite-title').textContent(),
+    countdown: await running.locator('#invite-countdown').textContent(),
+    accept: await running.locator('#invite-accept-btn').textContent(),
+  };
+  await running.fill('#invite-name', '');
+  await running.click('#invite-accept-btn');
+  const joined = await running.locator('section#practice.active').count();
+  const clearedName = await running.locator('#name-btn').textContent();
+  if (runningState.title !== 'The challenge has started!' || runningState.accept !== 'Join Now' || !/^00:[0-4]\d$/.test(runningState.countdown) ||
+    joined !== 1 || !clearedName.startsWith('Add your name')) fail('running challenge invite: ' + JSON.stringify({ ...runningState, joined, clearedName }));
+  else ok('a running challenge can be joined late (' + runningState.countdown + ' left); name stays optional');
+  await running.close();
+  const ended = await challengeAt(5 * 60000);
+  const endedState = {
+    title: await ended.locator('#invite-title').textContent(),
+    acceptShown: await ended.locator('#invite-accept-btn').isVisible(),
+    nameShown: await ended.locator('#invite-name').isVisible(),
+  };
+  await ended.click('#invite-decline-btn');
+  const endedHome = await ended.locator('section#home.active').count() === 1 && !(await ended.locator('#challenge-invite-modal').isVisible());
+  if (endedState.title !== 'This challenge is over' || endedState.acceptShown || endedState.nameShown || !endedHome) fail('ended challenge invite: ' + JSON.stringify({ ...endedState, endedHome }));
+  else ok('an ended challenge says so and closes to home');
+  await ended.close();
+  const bad = await browser.newPage();
+  await bad.goto(APP + '?code=NOPE');
+  await bad.waitForTimeout(200);
+  if ((await bad.locator('#invite-title').textContent()) !== "This challenge link doesn't work" || await bad.locator('#invite-accept-btn').isVisible()) fail('broken challenge link not handled');
+  else ok('a broken challenge link is explained');
+  await bad.close();
+
   // Sound pauses whenever the app is hidden or loses focus
   const apage = await browser.newPage();
   await apage.addInitScript(() => {

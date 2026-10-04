@@ -2616,6 +2616,7 @@
     if (shareModal.style.display !== 'none') closeShareModal();
     if (nameModal.style.display !== 'none') closeNameModal();
     if (rankModal.style.display !== 'none') closeRankModal();
+    if (inviteModal.style.display !== 'none') closeChallengeInvite();
   });
 
   // Weakest facts navigation
@@ -2683,19 +2684,30 @@
   var challengeRoundMinutes = 1;
   var challengeFactMask = 0xFFF;
 
-  function startChallengeCountdown(config) {
-    var codeEl = document.getElementById('challenge-show-code');
-    var countdownEl = document.getElementById('challenge-countdown');
-    var summaryEl = document.getElementById('challenge-config-summary');
-
-    codeEl.textContent = encodeChallenge(config);
-
+  // "3 min round · Facts: 2, 5, 10"
+  function challengeSummary(config) {
     var selectedNums = [];
     for (var i = 0; i < 12; i++) {
       if (config.factMask & (1 << i)) selectedNums.push(i + 1);
     }
     var factsStr = selectedNums.length === 12 ? 'All facts' : 'Facts: ' + selectedNums.join(', ');
-    summaryEl.innerHTML = config.roundMinutes + ' min round &middot; ' + factsStr;
+    return config.roundMinutes + ' min round \u00B7 ' + factsStr;
+  }
+
+  // Milliseconds -> "MM:SS", rounding up so it reaches 00:00 right at zero
+  function formatCountdown(ms) {
+    var totalSec = Math.max(0, Math.ceil(ms / 1000));
+    var m = Math.floor(totalSec / 60);
+    var s = totalSec % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function startChallengeCountdown(config) {
+    var codeEl = document.getElementById('challenge-show-code');
+    var countdownEl = document.getElementById('challenge-countdown');
+
+    codeEl.textContent = encodeChallenge(config);
+    document.getElementById('challenge-config-summary').textContent = challengeSummary(config);
 
     showScreen('challenge-wait');
 
@@ -2708,16 +2720,99 @@
         startChallengeSession(config);
         return false;
       }
-      var totalSec = Math.ceil(remaining / 1000);
-      var m = Math.floor(totalSec / 60);
-      var s = totalSec % 60;
-      countdownEl.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+      countdownEl.textContent = formatCountdown(remaining);
       return true;
     }
     if (updateCountdown()) {
       session.challengeCountdownInterval = setInterval(updateCountdown, 100);
     }
   }
+
+  // --- Challenge invite (opened from a ?code= link) ---
+  // Shows what the challenge is, a live countdown (to the start, or the time
+  // left once it's running), and the player's name to confirm or change
+  // before accepting.
+  var inviteModal = document.getElementById('challenge-invite-modal');
+  var inviteConfig = null;
+  var inviteInterval = null;
+
+  function updateInvite() {
+    var title = document.getElementById('invite-title');
+    var countdown = document.getElementById('invite-countdown');
+    var label = document.getElementById('invite-countdown-label');
+    var accept = document.getElementById('invite-accept-btn');
+    var decline = document.getElementById('invite-decline-btn');
+    var nameRow = document.getElementById('invite-name-row');
+    var now = Date.now();
+    var state = !inviteConfig ? 'invalid' :
+      now < inviteConfig.startTime ? 'waiting' :
+      now < inviteConfig.startTime + inviteConfig.roundMinutes * 60000 ? 'running' : 'ended';
+    inviteModal.dataset.state = state;
+
+    var open = state === 'waiting' || state === 'running';
+    accept.style.display = open ? '' : 'none';
+    nameRow.style.display = open ? '' : 'none';
+    countdown.style.display = open ? '' : 'none';
+    decline.textContent = open ? 'Not Now' : 'OK';
+    if (!open) clearInterval(inviteInterval);
+
+    if (state === 'invalid') {
+      title.textContent = 'This challenge link doesn\'t work';
+      label.textContent = 'Ask for a new link, or type the code on the Challenge screen.';
+    } else if (state === 'ended') {
+      title.textContent = 'This challenge is over';
+      label.textContent = 'You can start a new one from the Challenge screen.';
+    } else if (state === 'waiting') {
+      title.textContent = 'You\'ve been challenged!';
+      countdown.textContent = formatCountdown(inviteConfig.startTime - now);
+      label.textContent = 'until the challenge starts';
+      accept.textContent = 'Accept Challenge';
+    } else {
+      title.textContent = 'The challenge has started!';
+      countdown.textContent = formatCountdown(inviteConfig.startTime + inviteConfig.roundMinutes * 60000 - now);
+      label.textContent = 'left to play \u2014 jump in now!';
+      accept.textContent = 'Join Now';
+    }
+  }
+
+  function openChallengeInvite(code) {
+    var config = decodeChallenge(code);
+    inviteConfig = config && config.factMask ? config : null;
+    document.getElementById('invite-code').textContent = inviteConfig ? encodeChallenge(inviteConfig) : '';
+    document.getElementById('invite-details').textContent = inviteConfig ? challengeSummary(inviteConfig) : '';
+    document.getElementById('invite-name').value = data.name || '';
+    clearInterval(inviteInterval);
+    updateInvite();
+    inviteInterval = setInterval(updateInvite, 250);
+    inviteModal.style.display = '';
+    var accept = document.getElementById('invite-accept-btn');
+    (accept.style.display === 'none' ? document.getElementById('invite-decline-btn') : accept).focus();
+  }
+
+  function closeChallengeInvite() {
+    clearInterval(inviteInterval);
+    inviteModal.style.display = 'none';
+  }
+
+  document.getElementById('invite-accept-btn').addEventListener('click', function () {
+    var config = inviteConfig;
+    if (!config || config.startTime + config.roundMinutes * 60000 <= Date.now()) {
+      updateInvite();
+      return;
+    }
+    // The name is optional; an empty box clears it, as on the home screen
+    data.name = cleanName(document.getElementById('invite-name').value);
+    saveData();
+    renderHome();
+    closeChallengeInvite();
+    if (config.startTime > Date.now()) startChallengeCountdown(config);
+    else startChallengeSession(config);
+  });
+
+  document.getElementById('invite-decline-btn').addEventListener('click', closeChallengeInvite);
+  document.getElementById('invite-name').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') document.getElementById('invite-accept-btn').click();
+  });
 
   document.getElementById('challenge-btn').addEventListener('click', function () {
     challengeStartMinutes = 1;
@@ -3000,10 +3095,7 @@
     if (sharedHistory) {
       showSharedHistory(sharedHistory);
     } else if (sharedCode) {
-      var input = document.getElementById('challenge-code-input');
-      input.value = sharedCode;
-      input.dispatchEvent(new Event('input'));
-      showScreen('challenge');
+      openChallengeInvite(sharedCode);
     }
   }
 

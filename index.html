@@ -137,7 +137,7 @@
       </div>
     </details>
 
-    <p class="build-info">Build 2026-10-03 20:00</p>
+    <p class="build-info">Build 2026-10-03 20:45</p>
   </section>
 
   <!-- PRACTICE CONFIG SCREEN -->
@@ -403,6 +403,26 @@
       <div class="modal-buttons">
         <button id="end-cancel-btn" class="secondary-btn">Keep Playing</button>
         <button id="end-confirm-btn" class="danger-btn">End Round</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHALLENGE INVITE MODAL (opened from a ?code= link) -->
+  <div id="challenge-invite-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="invite-title">
+      <div class="modal-emoji">🚀</div>
+      <h2 id="invite-title">You've been challenged!</h2>
+      <p id="invite-details" class="invite-details"></p>
+      <p id="invite-code" class="invite-code"></p>
+      <div id="invite-countdown" class="challenge-countdown invite-countdown" role="timer" aria-live="off">00:00</div>
+      <p id="invite-countdown-label" class="modal-text"></p>
+      <div id="invite-name-row" class="invite-name-row">
+        <label for="invite-name">Playing as</label>
+        <input id="invite-name" class="text-input" type="text" maxlength="20" autocomplete="off" placeholder="Your name (optional)">
+      </div>
+      <div class="modal-buttons">
+        <button id="invite-decline-btn" class="secondary-btn">Not Now</button>
+        <button id="invite-accept-btn" class="secondary-btn share-main-btn">Accept Challenge</button>
       </div>
     </div>
   </div>

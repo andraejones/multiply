@@ -7,6 +7,8 @@ Headless end-to-end test that drives the real app in Chromium and checks:
   retype mode, advancing between problems
 - Summary stats, history cards, sandbox sessions
 - Challenge code generate / join round-trip
+- Challenge links open an accept dialog: live countdown, editable name, late
+  join while running, ended and broken links
 - Export / import transfer-code round-trip
 - Mastery decay: 7-day grace period, partial and full decay, and that
   decayed facts re-enter the practice rotation

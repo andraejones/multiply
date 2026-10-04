@@ -904,6 +904,12 @@ h2 {
   border-color: var(--primary);
   color: #fff;
 }
+/* Stays filled on hover/press (outranks the .secondary-btn hover wash) */
+.secondary-btn.share-main-btn:hover,
+.secondary-btn.share-main-btn:active {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
 .share-name-hint {
   font-size: 0.85rem;
   color: var(--mastery-bronze);
@@ -1499,4 +1505,37 @@ h2 {
 .rank-row.reached .rank-chip {
   color: var(--correct);
   background: rgba(52,211,153,0.12);
+}
+
+/* Challenge invite modal */
+.invite-details {
+  font-weight: 900;
+  color: var(--primary);
+}
+.invite-code {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: rgba(255,255,255,0.45);
+  margin-top: -6px;
+}
+.invite-code:empty {
+  display: none;
+}
+.invite-countdown {
+  font-size: 3.5rem;
+  line-height: 1.1;
+  margin: 4px 0 -6px;
+}
+.invite-name-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.invite-name-row label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.6);
 }
