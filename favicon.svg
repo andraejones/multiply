@@ -1,10 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#C4B5FD"/>
-      <stop offset="0.5" stop-color="#A78BFA"/>
-      <stop offset="1" stop-color="#60A5FA"/>
-    </linearGradient>
     <radialGradient id="nebPurple" cx="0.5" cy="0" r="0.9">
       <stop offset="0" stop-color="#7C3AED" stop-opacity="0.45"/>
       <stop offset="1" stop-color="#7C3AED" stop-opacity="0"/>
@@ -13,6 +8,16 @@
       <stop offset="0" stop-color="#60A5FA" stop-opacity="0.3"/>
       <stop offset="1" stop-color="#60A5FA" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="planet" cx="0.36" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#C4B5FD"/>
+      <stop offset="0.5" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#4338CA"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="0.5" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
     <clipPath id="tile">
       <rect width="64" height="64" rx="14"/>
     </clipPath>
@@ -22,15 +27,25 @@
     <rect width="64" height="64" fill="url(#nebPurple)"/>
     <rect width="64" height="64" fill="url(#nebBlue)"/>
   </g>
-  <circle cx="13" cy="13" r="1.6" fill="#fff" opacity="0.9"/>
-  <circle cx="51" cy="17" r="1.1" fill="#fff" opacity="0.6"/>
-  <circle cx="46" cy="50" r="1.4" fill="#fff" opacity="0.7"/>
-  <circle cx="11" cy="47" r="1" fill="#fff" opacity="0.5"/>
-  <circle cx="32" cy="8" r="1" fill="#fff" opacity="0.5"/>
-  <circle cx="55" cy="34" r="0.9" fill="#fff" opacity="0.45"/>
-  <circle cx="8" cy="28" r="0.8" fill="#fff" opacity="0.4"/>
-  <g stroke="url(#g)" stroke-width="10" stroke-linecap="round">
-    <line x1="21" y1="21" x2="43" y2="43"/>
-    <line x1="43" y1="21" x2="21" y2="43"/>
+  <circle cx="11" cy="12" r="1.5" fill="#fff" opacity="0.9"/>
+  <circle cx="50" cy="53" r="1.3" fill="#fff" opacity="0.7"/>
+  <circle cx="10" cy="51" r="1" fill="#fff" opacity="0.5"/>
+  <circle cx="31" cy="6.5" r="0.9" fill="#fff" opacity="0.5"/>
+  <circle cx="57" cy="33" r="0.8" fill="#fff" opacity="0.45"/>
+  <path d="M52 8 l1.1 2.6 2.6 1.1 -2.6 1.1 -1.1 2.6 -1.1 -2.6 -2.6 -1.1 2.6 -1.1z" fill="#FDE68A"/>
+  <g id="art">
+  <g transform="rotate(-18 32 33)">
+    <!-- back half of the ring, behind the planet -->
+    <path d="M5 33 A27 7.5 0 0 1 59 33" fill="none" stroke="url(#ring)" stroke-width="3.2" opacity="0.75"/>
+  </g>
+  <circle cx="32" cy="31" r="17" fill="url(#planet)"/>
+  <g stroke="#fff" stroke-width="5.6" stroke-linecap="round">
+    <line x1="26" y1="24.5" x2="38" y2="36.5"/>
+    <line x1="38" y1="24.5" x2="26" y2="36.5"/>
+  </g>
+  <g transform="rotate(-18 32 33)">
+    <!-- front half of the ring, across the planet -->
+    <path d="M5 33 A27 7.5 0 0 0 59 33" fill="none" stroke="url(#ring)" stroke-width="3.2" stroke-linecap="round"/>
+  </g>
   </g>
 </svg>
